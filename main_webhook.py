@@ -10,6 +10,7 @@ os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 import logging
 
 from fastapi import FastAPI, Request, Response
+from lark_oapi.core.exception import EventException
 from lark_oapi.core.model import RawRequest, RawResponse
 
 from config import (
@@ -70,7 +71,13 @@ async def lark_webhook(request: Request):
     body = await request.body()
     raw_req = _raw_request_from_http(request, body)
     handler = _get_handler()
-    raw_resp = handler.do(raw_req)
+    try:
+        raw_resp = handler.do(raw_req)
+    except EventException as e:
+        if "processor not found" in str(e):
+            logger.debug("unhandled event type, return 200: %s", e)
+            return Response(content=b'{"msg":"success"}', status_code=200, media_type="application/json")
+        raise
     return _response_to_http(raw_resp)
 
 

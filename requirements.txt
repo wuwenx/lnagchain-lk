@@ -12,3 +12,6 @@ certifi>=2024.0.0
 # Webhook 模式 HTTP 服务
 fastapi>=0.115.0
 uvicorn>=0.32.0
+
+# 网页抓取（/抓取 skill）
+playwright>=1.40.0

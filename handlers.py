@@ -13,6 +13,7 @@ from feishu_doc import extract_document_ids, extract_wiki_node_tokens, fetch_doc
 from langchain_agent import reply as langchain_reply
 from lark_client import send_text_message
 from skills import resolve_skill
+from skills.fetch import fetch_skill, should_trigger_fetch
 
 logger = logging.getLogger(__name__)
 
@@ -87,12 +88,16 @@ def handle_message(data) -> None:
                 len(document_context or ""),
             )
         logger.info("user message: %s", text[:200])
-        skill = resolve_skill(text)
-        if skill:
-            logger.info("resolved skill: %s", skill.id)
-            answer = skill.run(text, document_context=document_context, chat_id=chat_id)
+        if should_trigger_fetch(text):
+            logger.info("trigger fetch skill (URL + 获取/抓取)")
+            answer = fetch_skill.run(text, document_context=document_context, chat_id=chat_id)
         else:
-            answer = langchain_reply(text, document_context=document_context)
+            skill = resolve_skill(text)
+            if skill:
+                logger.info("resolved skill: %s", skill.id)
+                answer = skill.run(text, document_context=document_context, chat_id=chat_id)
+            else:
+                answer = langchain_reply(text, document_context=document_context)
         if answer:
             send_text_message(chat_id, answer)
             logger.info("replied to chat_id=%s", chat_id)
@@ -126,5 +131,6 @@ def build_event_handler(encrypt_key: str, verification_token: str):
         .register_p2_im_message_recalled_v1(_noop)
         .register_p2_im_message_reaction_created_v1(_noop)
         .register_p2_im_message_reaction_deleted_v1(_noop)
+        .register_p2_vc_meeting_all_meeting_started_v1(_noop)
         .build()
     )

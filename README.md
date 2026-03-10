@@ -7,6 +7,7 @@
 - **Webhook 模式**：在 Lark 后台配置「请求地址」，事件推送到你的 HTTP 服务（需公网 URL，如 ngrok）
 - **文本消息**：用户发文本 → AI 回复
 - **读飞书文档**：用户消息中含飞书文档链接（`feishu.cn/docx/xxx` 或 `larksuite.com/docx/xxx`）或**知识库链接**（`.../wiki/xxx`）时，自动拉取正文并作为上下文交给 AI 回答
+- **网页抓取**：消息中同时包含「获取」或「抓取」且包含一个网址时，用 **Playwright** 抓取页面正文，再由大模型总结/分析并回复到 Lark（需安装 `playwright` 并执行 `playwright install chromium`）
 - **群聊**：群内仅在被 @ 时回复（可配置 `FEISHU_GROUP_ACCESS`）
 - **可扩展**：可在此项目上增加 RAG、Tools、多轮历史等
 
@@ -35,6 +36,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 # 编辑 .env：FEISHU_APP_ID、FEISHU_APP_SECRET、FEISHU_VERIFICATION_TOKEN、OPENAI_API_KEY 等
+# 若使用网页抓取（在 Lark 发「获取」/「抓取」+ 网址）：需安装 Chromium
+# .venv/bin/playwright install chromium
 ```
 
 在 `.env` 中填写 **FEISHU_VERIFICATION_TOKEN**（事件配置里的 Verification Token）。若事件配置里开启了「加密」，再填写 **FEISHU_ENCRYPT_KEY**。
@@ -77,6 +80,7 @@ lnagchain-lk/
 ├── main.py              # WebSocket 模式入口（若平台仍支持）
 ├── handlers.py          # 事件处理（消息解析、LangChain 回复）
 ├── feishu_doc.py        # 飞书文档/知识库链接解析与正文拉取
+├── skills/              # 技能：/btc、/rank、网页抓取等
 ├── lark_client.py       # 飞书 HTTP 客户端与发送消息
 ├── langchain_agent.py   # LangChain 对话链（可改为 Agent/RAG）
 ├── config.py            # 配置加载与校验
