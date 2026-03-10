@@ -8,6 +8,7 @@
 - **文本消息**：用户发文本 → AI 回复
 - **读飞书文档**：用户消息中含飞书文档链接（`feishu.cn/docx/xxx` 或 `larksuite.com/docx/xxx`）或**知识库链接**（`.../wiki/xxx`）时，自动拉取正文并作为上下文交给 AI 回答
 - **网页抓取**：消息中同时包含「获取」或「抓取」且包含一个网址时，用 **Playwright** 抓取页面正文，再由大模型总结/分析并回复到 Lark（需安装 `playwright` 并执行 `playwright install chromium`）
+- **直接创建 Lark 文档**：说「新建 lark 文档」「帮我新建一个 xxx 文档」或发 `/新建文档` 时，机器人会**直接调用飞书 API 创建云文档**并返回链接（需应用有云文档创建权限；可选配置 `FEISHU_DOC_BASE_URL` 以返回可点击链接）
 - **群聊**：群内仅在被 @ 时回复（可配置 `FEISHU_GROUP_ACCESS`）
 - **可扩展**：可在此项目上增加 RAG、Tools、多轮历史等
 
@@ -21,7 +22,7 @@
 ## 飞书/Lark 应用配置
 
 1. 打开 [飞书开放平台](https://open.feishu.cn/app) 或 [Lark 开发者后台](https://open.larksuite.com)，创建**企业自建应用**
-2. **权限**：开启 `im:message`、`im:message.group_at_msg`、`im:resource`、`contact:user.id:readonly`；**若需机器人读飞书文档**，再开启 `docx:document`；**若需读知识库（Wiki）链接**，再开启 `wiki:wiki` 或 `wiki:wiki.readonly`（以飞书/ Lark 文档为准）
+2. **权限**：开启 `im:message`、`im:message.group_at_msg`、`im:resource`、`contact:user.id:readonly`；**若需机器人读飞书文档**，再开启 `docx:document`；**若需读知识库（Wiki）链接**，再开启 `wiki:wiki` 或 `wiki:wiki.readonly`；**若需机器人直接创建云文档**，需确保应用有云文档创建/写入权限（以飞书/ Lark 文档为准）
 3. **事件配置**：选择 **将事件发送至开发者服务器**，**请求地址**填你的公网 URL（见下方「Webhook 模式」）
 4. 在应用凭证页复制 **App ID**、**App Secret**；在事件配置页复制 **Verification Token**（若开启加密则还有 **Encrypt Key**）
 
@@ -69,6 +70,7 @@ cp .env.example .env
 | `OPENAI_MODEL` | 否 | 模型名，默认 `gpt-4o-mini`；DeepSeek 可用 `deepseek-chat`、`deepseek-reasoner` 等 |
 | `FEISHU_GROUP_ACCESS` | 否 | 群聊模式：`open`（默认）/ `allowlist` / `disabled` |
 | `FEISHU_DOMAIN` | 否 | 国际版 Lark 填 `https://open.larksuite.com`，国内飞书默认 `https://open.feishu.cn` |
+| `FEISHU_DOC_BASE_URL` | 否 | 创建文档后返回的可点击链接根地址，如 `https://你的企业.larksuite.com`，不设则只返回 document_id |
 | `WEBHOOK_PORT` | 否 | Webhook 监听端口，默认 9000 |
 | `WEBHOOK_PATH` | 否 | Webhook 路径，默认 `/`（请求地址 = 公网URL + 此路径） |
 

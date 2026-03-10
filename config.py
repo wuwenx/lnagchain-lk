@@ -21,6 +21,8 @@ FEISHU_APP_SECRET = _str("FEISHU_APP_SECRET")
 FEISHU_GROUP_ACCESS = _str("FEISHU_GROUP_ACCESS", "open")  # open | allowlist | disabled
 # 国际版 Lark 请设为 https://open.larksuite.com，国内飞书默认 https://open.feishu.cn
 FEISHU_DOMAIN = _str("FEISHU_DOMAIN", "https://open.feishu.cn")
+# 创建文档后返回的链接根地址（可选），如 https://xxx.feishu.cn 或 https://xxx.larksuite.com，不设则只返回 document_id
+FEISHU_DOC_BASE_URL = _str("FEISHU_DOC_BASE_URL", "").rstrip("/")
 
 # Webhook 模式（请求地址）必填：事件订阅里的「Verification Token」；若开启加密需填「Encrypt Key」
 FEISHU_VERIFICATION_TOKEN = _str("FEISHU_VERIFICATION_TOKEN")
