@@ -1,0 +1,14 @@
+build
+.idea
+node_modules
+/.DS_Store
+/src/.DS_Store
+.DS_Store
+.history
+dist
+.vscode
+.env
+.serena
+.venv
+.DS_Store
+*.pyc

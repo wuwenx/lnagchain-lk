@@ -1,0 +1,14 @@
+# 飞书 / Lark
+lark-oapi>=1.5.0
+
+# LangChain
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+
+# 配置
+python-dotenv>=1.0.0
+certifi>=2024.0.0
+
+# Webhook 模式 HTTP 服务
+fastapi>=0.115.0
+uvicorn>=0.32.0
