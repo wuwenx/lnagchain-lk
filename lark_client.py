@@ -8,6 +8,8 @@ import logging
 import lark_oapi as lark
 from lark_oapi.api.im.v1.model.create_message_request import CreateMessageRequest
 from lark_oapi.api.im.v1.model.create_message_request_body import CreateMessageRequestBody
+from lark_oapi.api.im.v1.model.update_message_request import UpdateMessageRequest
+from lark_oapi.api.im.v1.model.update_message_request_body import UpdateMessageRequestBody
 from lark_oapi.api.docx.v1.model.create_document_request import CreateDocumentRequest
 from lark_oapi.api.docx.v1.model.create_document_request_body import CreateDocumentRequestBody
 from lark_oapi.api.docx.v1.model.list_document_block_request import ListDocumentBlockRequest
@@ -70,6 +72,36 @@ def send_text_message(chat_id: str, text: str) -> str | None:
     except Exception as e:
         logger.exception("send_text_message error: %s", e)
         return None
+
+
+def update_text_message(message_id: str, text: str) -> bool:
+    """
+    更新已有消息的文本内容（用于流式回复时逐步更新同一条消息）。
+    :param message_id: 消息 ID（由 send_text_message 返回）
+    :param text: 新的全文内容
+    :return: 是否更新成功
+    """
+    try:
+        body = (
+            UpdateMessageRequestBody.builder()
+            .msg_type("text")
+            .content(json.dumps({"text": text}))
+            .build()
+        )
+        req = (
+            UpdateMessageRequest.builder()
+            .message_id(message_id)
+            .request_body(body)
+            .build()
+        )
+        resp = get_client().im.v1.message.update(req)
+        if not resp.success():
+            logger.error("update message failed: %s", resp.raw.content)
+            return False
+        return True
+    except Exception as e:
+        logger.exception("update_text_message error: %s", e)
+        return False
 
 
 def create_lark_document(title: str, folder_token: str = "") -> tuple[str | None, str | None]:

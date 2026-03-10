@@ -10,7 +10,8 @@
 - **网页抓取**：消息中同时包含「获取」或「抓取」且包含一个网址时，用 **Playwright** 抓取页面正文，再由大模型总结/分析并回复到 Lark（需安装 `playwright` 并执行 `playwright install chromium`）
 - **直接创建 Lark 文档**：说「新建 lark 文档」「帮我新建一个 xxx 文档」或发 `/新建文档` 时，机器人会**直接调用飞书 API 创建云文档**并返回链接（需应用有云文档创建权限；可选配置 `FEISHU_DOC_BASE_URL` 以返回可点击链接）
 - **群聊**：群内仅在被 @ 时回复（可配置 `FEISHU_GROUP_ACCESS`）
-- **可扩展**：可在此项目上增加 RAG、Tools、多轮历史等
+- **流式回复**：默认对话路径下，先发一条「思考中…」占位消息，再边生成边调用飞书「更新消息」接口更新同一条消息（约 0.4 秒节流，避免限频）
+- **可扩展**：可在此项目上增加 RAG、Tools 等
 
 ## 环境要求
 
@@ -93,8 +94,8 @@ lnagchain-lk/
 
 ## 扩展建议
 
-- **多轮对话**：在 `langchain_agent.py` 中按 `chat_id` 维护历史，传入 `reply(..., history=...)`
-- **流式回复**：先发一条消息，再循环调用飞书「更新消息」接口
+- **多轮对话**：按 `chat_id` 维护最近 10 轮历史，默认对话路径会传入 `reply(..., history=...)`；skill 路径不写入历史
+- **流式回复**：已实现——先发占位消息，再 `reply_stream` + 飞书「更新消息」接口（见 `handlers.py`、`langchain_agent.reply_stream`、`lark_client.update_text_message`）
 - **RAG**：使用 `LarkSuiteDocLoader` 等加载飞书文档，接入当前链
 - **Tools**：在 `langchain_agent.py` 中改为 Agent + Tools 即可
 

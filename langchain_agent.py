@@ -66,3 +66,28 @@ def reply(user_message: str, history: list | None = None, document_context: str 
         {"input": input_text, "history": history or []}
     )
     return result.content if hasattr(result, "content") else str(result)
+
+
+def reply_stream(user_message: str, history: list | None = None, document_context: str | None = None):
+    """
+    流式生成回复，每次 yield 当前已累积的完整文本，供调用方更新同一条飞书消息。
+    """
+    chain = get_chain()
+    input_text = user_message
+    if document_context and document_context.strip():
+        input_text = (
+            f"以下是与用户问题相关的文档内容，请结合文档内容回答用户问题。\n\n"
+            f"【文档内容】\n{document_context.strip()}\n\n"
+            f"【用户问题】\n{user_message}"
+        )
+    accumulated = ""
+    try:
+        for chunk in chain.stream({"input": input_text, "history": history or []}):
+            part = getattr(chunk, "content", None) or ""
+            if isinstance(part, str) and part:
+                accumulated += part
+                yield accumulated
+    except Exception:
+        pass
+    if accumulated:
+        yield accumulated

@@ -1,21 +1,47 @@
 """
 飞书事件处理：消息解析、是否回复、LangChain 回复并发回
 供 WebSocket (main.py) 与 Webhook (main_webhook.py) 共用
+支持按 chat_id 维护多轮对话历史。
 """
 import json
 import logging
 import threading
+import time
 
 import lark_oapi as lark
+from langchain_core.messages import AIMessage, HumanMessage
 
 from config import FEISHU_GROUP_ACCESS
 from feishu_doc import extract_document_ids, extract_wiki_node_tokens, fetch_documents_content
-from langchain_agent import reply as langchain_reply
-from lark_client import send_text_message
+from langchain_agent import reply as langchain_reply, reply_stream as langchain_reply_stream
+from lark_client import send_text_message, update_text_message
 from skills import resolve_skill
 from skills.fetch import fetch_skill, should_trigger_fetch
 
 logger = logging.getLogger(__name__)
+
+# 按 chat_id 维护多轮对话历史，格式：list of [HumanMessage, AIMessage, ...]
+_chat_histories: dict[str, list] = {}
+_history_lock = threading.Lock()
+# 每个会话保留最近 N 轮（每轮 1 条用户 + 1 条助手），避免无限增长
+MAX_HISTORY_TURNS = 10
+MAX_HISTORY_LEN = MAX_HISTORY_TURNS * 2
+
+
+def _get_history(chat_id: str) -> list:
+    """获取该会话的对话历史（HumanMessage/AIMessage 列表）。"""
+    with _history_lock:
+        return list(_chat_histories.get(chat_id, []))
+
+
+def _append_to_history(chat_id: str, user_text: str, assistant_text: str) -> None:
+    """将本轮用户消息与助手回复追加到历史，并截断到最多 MAX_HISTORY_LEN 条。"""
+    with _history_lock:
+        hist = _chat_histories.setdefault(chat_id, [])
+        hist.append(HumanMessage(content=user_text))
+        hist.append(AIMessage(content=assistant_text))
+        if len(hist) > MAX_HISTORY_LEN:
+            _chat_histories[chat_id] = hist[-MAX_HISTORY_LEN:]
 
 
 def _extract_text_from_content(content: str, message_type: str) -> str:
@@ -91,17 +117,46 @@ def handle_message(data) -> None:
         if should_trigger_fetch(text):
             logger.info("trigger fetch skill (URL + 获取/抓取)")
             answer = fetch_skill.run(text, document_context=document_context, chat_id=chat_id)
+            used_skill = True
         else:
             skill = resolve_skill(text)
             if skill:
                 logger.info("resolved skill: %s", skill.id)
                 answer = skill.run(text, document_context=document_context, chat_id=chat_id)
+                used_skill = True
             else:
-                answer = langchain_reply(text, document_context=document_context)
-        if answer:
+                history = _get_history(chat_id)
+                used_skill = False
+                # 流式回复：先发占位消息，再边生成边更新同一条消息
+                placeholder = "思考中…"
+                message_id = send_text_message(chat_id, placeholder)
+                if not message_id:
+                    answer = langchain_reply(text, history=history, document_context=document_context)
+                    if answer:
+                        send_text_message(chat_id, answer)
+                        _append_to_history(chat_id, text, answer)
+                    else:
+                        send_text_message(chat_id, "抱歉，我暂时无法生成回复。")
+                    return
+                last_updated_at = 0.0
+                throttle_interval = 0.4  # 秒，避免更新消息过于频繁
+                answer = ""
+                for accumulated in langchain_reply_stream(text, history=history, document_context=document_context):
+                    answer = accumulated
+                    now = time.monotonic()
+                    if now - last_updated_at >= throttle_interval:
+                        update_text_message(message_id, accumulated)
+                        last_updated_at = now
+                if answer:
+                    update_text_message(message_id, answer)
+                    _append_to_history(chat_id, text, answer)
+                else:
+                    update_text_message(message_id, "抱歉，我暂时无法生成回复。")
+                logger.info("replied to chat_id=%s (streaming)", chat_id)
+        if used_skill and answer:
             send_text_message(chat_id, answer)
             logger.info("replied to chat_id=%s", chat_id)
-        else:
+        elif used_skill and not answer:
             send_text_message(chat_id, "抱歉，我暂时无法生成回复。")
     except Exception as e:
         logger.exception("handle_message error: %s", e)
