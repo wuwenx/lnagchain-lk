@@ -12,6 +12,7 @@ from config import FEISHU_GROUP_ACCESS
 from feishu_doc import extract_document_ids, extract_wiki_node_tokens, fetch_documents_content
 from langchain_agent import reply as langchain_reply
 from lark_client import send_text_message
+from skills import resolve_skill
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,12 @@ def handle_message(data) -> None:
                 len(document_context or ""),
             )
         logger.info("user message: %s", text[:200])
-        answer = langchain_reply(text, document_context=document_context)
+        skill = resolve_skill(text)
+        if skill:
+            logger.info("resolved skill: %s", skill.id)
+            answer = skill.run(text, document_context=document_context, chat_id=chat_id)
+        else:
+            answer = langchain_reply(text, document_context=document_context)
         if answer:
             send_text_message(chat_id, answer)
             logger.info("replied to chat_id=%s", chat_id)

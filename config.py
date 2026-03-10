@@ -37,6 +37,9 @@ OPENAI_API_BASE = _str("OPENAI_API_BASE", "https://api.openai.com/v1")
 # 模型名，如 gpt-4o-mini、deepseek-chat、deepseek-reasoner
 OPENAI_MODEL = _str("OPENAI_MODEL", "gpt-4o-mini")
 
+# CoinMarketCap API（/rank skill 交易所排名，可选）
+CMC_API_KEY = _str("CMC_API_KEY")
+
 
 def validate_config() -> list[str]:
     """校验必填配置，返回错误信息列表。"""
