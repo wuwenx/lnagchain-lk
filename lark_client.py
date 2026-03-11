@@ -330,7 +330,7 @@ def build_liquidity_depth_card(parsed: dict, conclusion_text: str = "") -> dict:
     })
     elements.append({"tag": "hr"})
 
-    # 2. 各档位深度对比：买盘、卖盘分列，档位可带价格区间（Markdown 表格）
+    # 2. 各档位深度对比：用 lark_md 表格（原生 table 在部分飞书环境不展示，改用 Markdown 表格保证可见）
     elements.append({
         "tag": "div",
         "text": {"tag": "lark_md", "content": "**📈 各档位流动性深度对比（单位：M USDT，买盘/卖盘分开；档位列为该档最低价～最高价）**"},
@@ -341,7 +341,6 @@ def build_liquidity_depth_card(parsed: dict, conclusion_text: str = "") -> dict:
         col_headers.append(e.get("name", "?") + "卖")
     table_rows = [col_headers]
     for label in level_labels:
-        # 若第一所有该档 low/high 则用做档位显示
         low_high = ""
         for e in exchanges:
             lev = e.get("levels", {}).get(label)
@@ -367,7 +366,7 @@ def build_liquidity_depth_card(parsed: dict, conclusion_text: str = "") -> dict:
     })
     elements.append({"tag": "hr"})
 
-    # 2b. 滑点与均价（模拟大单）：展示所有参与对比的交易所，深度不足的显示「深度不足」
+    # 2b. 滑点与均价：用 lark_md 表格（保证卡片在飞书内正常展示）
     slip_exchanges = [e for e in exchanges if e.get("slippage") and isinstance(e["slippage"], dict) and (e["slippage"].get("simulate_size") is not None or e["slippage"].get("asset"))]
     if slip_exchanges:
         s0 = slip_exchanges[0]["slippage"]
