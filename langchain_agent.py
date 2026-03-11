@@ -8,8 +8,8 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
 
 from config import OPENAI_API_BASE, OPENAI_API_KEY, OPENAI_MODEL
-from tools import get_funding_rate_tool, get_funding_rates_multi_tool
-from lark_client import build_funding_rate_card, parse_funding_rate_tool_output
+from tools import get_funding_rate_tool, get_funding_rates_multi_tool, get_liquidity_depth_multi_tool
+from lark_client import build_funding_rate_card, parse_funding_rate_tool_output, parse_liquidity_depth_tool_output, build_liquidity_depth_card
 
 
 def build_chain():
@@ -52,14 +52,20 @@ def get_chain():
 
 
 # Agent 使用的工具列表（可扩展更多交易所/数据类工具）
-AGENT_TOOLS = [get_funding_rate_tool, get_funding_rates_multi_tool]
+AGENT_TOOLS = [get_funding_rate_tool, get_funding_rates_multi_tool, get_liquidity_depth_multi_tool]
 MAX_AGENT_ITERATIONS = 5
 
 AGENT_SYSTEM = """你是一个有帮助的 AI 助手，在飞书中与用户对话。回复简洁、友好，使用中文。
-你可以使用以下工具查询交易所资金费率：
-1. get_funding_rates_multi_tool：一次查询**多个**交易所的资金费率。参数 exchange_ids 为逗号分隔的交易所 id（如 "binance,toobit,bybit"），symbol 如 BTC。当用户问「A、B、C 三个/多个交易所的 BTC 资金费率」时，**必须优先使用本工具**，一次性传入所有交易所，确保不遗漏。
-2. get_funding_rate_tool：查询**单个**交易所的资金费率。参数 exchange_id（如 binance, toobit, bybit）、symbol（如 BTC）。
-回复时请覆盖用户问到的每一个交易所的结果；若某交易所查询失败，也要在回复中说明该交易所暂不可用或报错。"""
+你可以使用以下工具查询交易所数据：
+
+**资金费率**
+1. get_funding_rates_multi_tool：一次查询多个交易所的资金费率。参数 exchange_ids 逗号分隔（如 "binance,toobit,bybit"），symbol 如 BTC。用户问多所资金费率时优先用此工具。
+2. get_funding_rate_tool：查询单个交易所资金费率。参数 exchange_id、symbol。
+
+**流动性深度对比**
+3. get_liquidity_depth_multi_tool：一次查询多个交易所的永续合约订单簿深度，用于对比流动性。当用户问「对比 OKX 和 Binance 的 ETH 流动性深度」「多交易所深度对比」时，用本工具一次传入所有交易所（exchange_ids 逗号分隔，如 "okx,binance"），symbol 如 ETH。**用户说的标的符号必须原样传入，不得改写或“纠正”：用户说「1000PEPE」就传 symbol="1000PEPE」，不要改成 PEPE；用户说「对比 toobit 和 Binance 的 1000PEPE 流动性深度」则 symbol 为 1000PEPE。** 工具会按 万1(0.01%)、万5(0.05%)、微观(0.1%)、紧密(0.5%)、核心(1%) 五档返回各所的**买盘深度**与**卖盘深度**（单位 M USDT，分开列出），并默认按 100 个标的模拟买入/卖出滑点与均价。若用户提到具体数量（如「计算买入 10000000 个 pepe 的滑点」），将该数字作为 simulate_size 传入，标的仍按用户说的流动性对比对象（如 1000PEPE）对应 symbol。
+请基于档位与滑点数据分别分析买盘、卖盘流动性差异（哪所更厚、买卖是否均衡、适合大单的档位等）。
+回复时覆盖用户问到的每个交易所；若有失败也说明。"""
 
 
 def _get_agent_llm():
@@ -84,12 +90,18 @@ def _run_agent(input_text: str, history: list) -> tuple[str, dict | None]:
     messages.append(HumanMessage(content=input_text))
     tool_map = {t.name: t for t in AGENT_TOOLS}
     funding_tool_names = {get_funding_rate_tool.name, get_funding_rates_multi_tool.name}
+    depth_tool_name = get_liquidity_depth_multi_tool.name
     all_funding_lines = []
+    all_depth_content = []  # 深度工具输出的文本，取最后一次用于构建深度卡片
     for _ in range(MAX_AGENT_ITERATIONS):
         response = llm.invoke(messages)
         if not getattr(response, "tool_calls", None):
             card = None
-            if all_funding_lines:
+            if all_depth_content:
+                parsed = parse_liquidity_depth_tool_output(all_depth_content[-1])
+                if parsed:
+                    card = build_liquidity_depth_card(parsed, conclusion_text=response.content or "")
+            if card is None and all_funding_lines:
                 card = build_funding_rate_card(all_funding_lines)
             return (response.content or "").strip() or "抱歉，我暂时无法生成回复。", card
         tool_messages = []
@@ -109,10 +121,19 @@ def _run_agent(input_text: str, history: list) -> tuple[str, dict | None]:
             if name in funding_tool_names:
                 parsed = parse_funding_rate_tool_output(content)
                 all_funding_lines.extend(parsed)
+            if name == depth_tool_name:
+                all_depth_content.append(content)
             tool_messages.append(ToolMessage(content=content, tool_call_id=tid))
         messages.append(response)
         messages.extend(tool_messages)
-    card = build_funding_rate_card(all_funding_lines) if all_funding_lines else None
+    # 达到最大迭代：优先返回深度卡片，否则资金费率卡片
+    card = None
+    if all_depth_content:
+        parsed = parse_liquidity_depth_tool_output(all_depth_content[-1])
+        if parsed:
+            card = build_liquidity_depth_card(parsed, conclusion_text="")
+    if card is None and all_funding_lines:
+        card = build_funding_rate_card(all_funding_lines)
     return "查询步骤过多，请简化问题后重试。", card
 
 

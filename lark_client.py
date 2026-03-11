@@ -195,6 +195,228 @@ def parse_funding_rate_tool_output(text: str) -> list[dict]:
     return lines
 
 
+def parse_liquidity_depth_tool_output(text: str) -> dict | None:
+    """
+    从 get_liquidity_depth_multi 的工具输出解析出结构化数据，用于构建深度对比卡片。
+    支持档位价格区间、买/卖盘、滑点与均价。返回 {"symbol", "exchanges": [{"name", "mid", "num_bands", "levels": {label: {"bid","ask","low","high"}}, "slippage": {}}], "level_labels"}。
+    """
+    import re
+    if not (text or "").strip():
+        return None
+    exchanges = []
+    level_labels = []
+    current_ex = None
+    for line in (text or "").split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # 交易所行: "BINANCE ETH 中间价≈2031.61 USDT  共分析 5 档"
+        m = re.match(r"([A-Za-z0-9]+)\s+(\w+)\s+中间价[≈=]\s*([\d.]+)\s*USDT(?:\s+共分析\s+(\d+)\s+档)?", line)
+        if m:
+            if current_ex and current_ex.get("levels"):
+                exchanges.append(current_ex)
+            current_ex = {
+                "name": m.group(1).upper(),
+                "symbol": m.group(2),
+                "mid": float(m.group(3)),
+                "num_bands": int(m.group(4)) if m.group(4) else None,
+                "levels": {},
+                "slippage": {},
+            }
+            continue
+        # 档位行（带价格区间）: "  万1(0.01%) 价格区间[2028.0,2029.0] 买盘: 0.15M USDT  卖盘: 0.14M USDT"
+        m2 = re.match(r"(.+?)\s+价格区间\[([\d.]+),([\d.]+)\]\s+买盘:\s*([\d.]+)M\s*USDT\s+卖盘:\s*([\d.]+)M\s*USDT", line)
+        if m2 and current_ex:
+            label, low, high = m2.group(1).strip(), m2.group(2), m2.group(3)
+            bid_val, ask_val = m2.group(4), m2.group(5)
+            current_ex["levels"][label] = {"bid": bid_val, "ask": ask_val, "low": low, "high": high}
+            if label not in level_labels:
+                level_labels.append(label)
+            continue
+        # 档位行（旧格式无价格区间）: "  万1(0.01%) 买盘: 0.15M USDT  卖盘: 0.14M USDT"
+        m2b = re.match(r"(.+?)\s+买盘:\s*([\d.]+)M\s*USDT\s+卖盘:\s*([\d.]+)M\s*USDT", line)
+        if m2b and current_ex and line.startswith("  "):
+            label, bid_val, ask_val = m2b.group(1).strip(), m2b.group(2), m2b.group(3)
+            current_ex["levels"][label] = {"bid": bid_val, "ask": ask_val, "low": None, "high": None}
+            if label not in level_labels:
+                level_labels.append(label)
+            continue
+        # 滑点与均价: "  滑点与均价: 买入1000ETH 滑点: 0.05% 买入均价: 2032.5 USDT | 卖出1000ETH 滑点: 0.04% 卖出均价: 2030.2 USDT"
+        m3 = re.search(
+            r"滑点与均价:\s*买入([\d.]+)(\w+)\s+滑点:\s*([\d.]+)%\s+买入均价:\s*([\d.]+)\s*USDT\s*\|\s*卖出\1\2\s+滑点:\s*([\d.]+)%\s+卖出均价:\s*([\d.]+)\s*USDT",
+            line,
+        )
+        if m3 and current_ex:
+            current_ex["slippage"] = {
+                "simulate_size": float(m3.group(1)),
+                "asset": m3.group(2),
+                "buy_slip_pct": m3.group(3),
+                "buy_avg": m3.group(4),
+                "sell_slip_pct": m3.group(5),
+                "sell_avg": m3.group(6),
+            }
+            continue
+        # 滑点行含深度不足（卖出有数据）
+        m3b = re.search(
+            r"滑点与均价:\s*买入([\d.]+)(\w+)\s+深度不足\s*\|\s*卖出\1\2\s+滑点:\s*([\d.]+)%\s+卖出均价:\s*([\d.]+)\s*USDT",
+            line,
+        )
+        if m3b and current_ex:
+            current_ex["slippage"] = {"simulate_size": float(m3b.group(1)), "asset": m3b.group(2), "buy_slip_pct": None, "buy_avg": None, "sell_slip_pct": m3b.group(3), "sell_avg": m3b.group(4)}
+            continue
+        # 滑点行：买入有数据、卖出深度不足
+        m3c = re.search(
+            r"滑点与均价:\s*买入([\d.]+)(\w+)\s+滑点:\s*([\d.]+)%\s+买入均价:\s*([\d.]+)\s*USDT\s*\|\s*卖出\1\2\s+深度不足",
+            line,
+        )
+        if m3c and current_ex:
+            current_ex["slippage"] = {"simulate_size": float(m3c.group(1)), "asset": m3c.group(2), "buy_slip_pct": m3c.group(3), "buy_avg": m3c.group(4), "sell_slip_pct": None, "sell_avg": None}
+            continue
+        # 滑点行：双深度不足
+        m3d = re.search(r"滑点与均价:\s*买入([\d.]+)(\w+)\s+深度不足\s*\|\s*卖出\1\2\s+深度不足", line)
+        if m3d and current_ex:
+            current_ex["slippage"] = {"simulate_size": float(m3d.group(1)), "asset": m3d.group(2), "buy_slip_pct": None, "buy_avg": None, "sell_slip_pct": None, "sell_avg": None}
+            continue
+        # 错误行
+        if "订单簿为空" in line or "获取深度失败" in line or "未找到" in line:
+            if current_ex and current_ex.get("levels"):
+                exchanges.append(current_ex)
+            current_ex = {"name": line.split()[0] if line.split() else "?", "mid": None, "num_bands": None, "levels": {}, "slippage": {}, "error": line[:150]}
+    if current_ex:
+        exchanges.append(current_ex)
+    if not exchanges or not level_labels:
+        return None
+    symbol = exchanges[0].get("symbol", "ETH") if exchanges else "ETH"
+    return {"symbol": symbol, "exchanges": exchanges, "level_labels": level_labels}
+
+
+def build_liquidity_depth_card(parsed: dict, conclusion_text: str = "") -> dict:
+    """
+    根据解析后的流动性深度数据构建飞书卡片：头部标题、价格水平模块、各档位深度表格、结论、时间戳。
+    conclusion_text: 大模型给出的结论摘要，可为空。
+    """
+    from datetime import datetime
+    symbol = parsed.get("symbol", "ETH")
+    exchanges = parsed.get("exchanges", [])
+    level_labels = parsed.get("level_labels", [])
+    if not exchanges:
+        return {"config": {"wide_screen_mode": True}, "header": {"title": {"tag": "plain_text", "content": "流动性深度"}}, "elements": []}
+    exchange_names = [e.get("name", "?") for e in exchanges]
+    title = " vs ".join(exchange_names) + f" {symbol} 流动性深度对比"
+    elements = []
+
+    # 1. 价格水平模块（含各所分析档位数）
+    price_lines = []
+    mids = []
+    for e in exchanges:
+        if e.get("error"):
+            price_lines.append(f"- **{e['name']}**：{e.get('error', '')[:80]}")
+        else:
+            mid = e.get("mid")
+            nb = e.get("num_bands")
+            if mid is not None:
+                band_info = f" 共分析 {nb} 档" if nb is not None else ""
+                price_lines.append(f"- **{e['name']}** 中间价：≈{mid:.2f} USDT{band_info}")
+                mids.append(mid)
+    if mids:
+        spread = max(mids) - min(mids) if len(mids) > 1 else 0
+        if spread < 1:
+            price_lines.append("\n> ✅ 价差极小，市场高度同步")
+        else:
+            price_lines.append(f"\n> 价差约 {spread:.2f} USDT")
+    elements.append({
+        "tag": "div",
+        "text": {"tag": "lark_md", "content": "**💰 价格水平（" + symbol + "/USDT）**\n" + "\n".join(price_lines)},
+    })
+    elements.append({"tag": "hr"})
+
+    # 2. 各档位深度对比：买盘、卖盘分列，档位可带价格区间（Markdown 表格）
+    elements.append({
+        "tag": "div",
+        "text": {"tag": "lark_md", "content": "**📈 各档位流动性深度对比（单位：M USDT，买盘/卖盘分开；档位列为该档最低价～最高价）**"},
+    })
+    col_headers = ["档位"]
+    for e in exchanges:
+        col_headers.append(e.get("name", "?") + "买")
+        col_headers.append(e.get("name", "?") + "卖")
+    table_rows = [col_headers]
+    for label in level_labels:
+        # 若第一所有该档 low/high 则用做档位显示
+        low_high = ""
+        for e in exchanges:
+            lev = e.get("levels", {}).get(label)
+            if isinstance(lev, dict) and lev.get("low") is not None and lev.get("high") is not None:
+                low_high = f" [{lev['low']},{lev['high']}]"
+                break
+        row = [label + low_high]
+        for e in exchanges:
+            lev = e.get("levels", {}).get(label)
+            if isinstance(lev, dict):
+                row.append((lev.get("bid") or "-") + ("M" if lev.get("bid") else ""))
+                row.append((lev.get("ask") or "-") + ("M" if lev.get("ask") else ""))
+            else:
+                row.append("-")
+                row.append("-")
+        table_rows.append(row)
+    md_lines = ["| " + " | ".join(col_headers) + " |", "| " + " | ".join(["---"] * len(col_headers)) + " |"]
+    for r in table_rows[1:]:
+        md_lines.append("| " + " | ".join(str(x) for x in r) + " |")
+    elements.append({
+        "tag": "div",
+        "text": {"tag": "lark_md", "content": "\n".join(md_lines)},
+    })
+    elements.append({"tag": "hr"})
+
+    # 2b. 滑点与均价（模拟大单）：展示所有参与对比的交易所，深度不足的显示「深度不足」
+    slip_exchanges = [e for e in exchanges if e.get("slippage") and isinstance(e["slippage"], dict) and (e["slippage"].get("simulate_size") is not None or e["slippage"].get("asset"))]
+    if slip_exchanges:
+        s0 = slip_exchanges[0]["slippage"]
+        size_str = f"{s0.get('simulate_size', '')}{s0.get('asset', symbol)}"
+        elements.append({
+            "tag": "div",
+            "text": {"tag": "lark_md", "content": f"**📉 滑点与均价（模拟买入/卖出 {size_str}）**"},
+        })
+        slip_headers = ["交易所", "买入滑点%", "买入均价", "卖出滑点%", "卖出均价"]
+        slip_rows = [slip_headers]
+        for e in slip_exchanges:
+            s = e["slippage"]
+            slip_rows.append([
+                e.get("name", "?"),
+                str(s.get("buy_slip_pct")) + "%" if s.get("buy_slip_pct") is not None else "深度不足",
+                str(s.get("buy_avg")) if s.get("buy_avg") is not None else "深度不足",
+                str(s.get("sell_slip_pct")) + "%" if s.get("sell_slip_pct") is not None else "深度不足",
+                str(s.get("sell_avg")) if s.get("sell_avg") is not None else "深度不足",
+            ])
+        slip_md = ["| " + " | ".join(slip_headers) + " |", "| " + " | ".join(["---"] * 5) + " |"]
+        for r in slip_rows[1:]:
+            slip_md.append("| " + " | ".join(str(x) for x in r) + " |")
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": "\n".join(slip_md)}})
+        elements.append({"tag": "hr"})
+
+    # 3. 结论模块
+    conclusion = (conclusion_text or "").strip()
+    if not conclusion:
+        conclusion = "请结合上方各档位数据对比各所流动性差异，可从万1/万5/微观/紧密/核心五档分别说明。"
+    elements.append({
+        "tag": "div",
+        "text": {"tag": "lark_md", "content": "**💡 核心结论**\n" + conclusion},
+    })
+    # 4. 时间戳
+    elements.append({
+        "tag": "note",
+        "elements": [{"tag": "plain_text", "content": "数据更新时间：{}".format(datetime.now().strftime("%Y-%m-%d %H:%M"))}],
+    })
+
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": "📊 " + title},
+            "template": "blue",
+        },
+        "elements": elements,
+    }
+
+
 def create_lark_document(title: str, folder_token: str = "") -> tuple[str | None, str | None]:
     """
     在飞书云文档中创建一篇新文档（仅标题，正文为空）。

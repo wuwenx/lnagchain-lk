@@ -12,6 +12,7 @@
 - **群聊**：群内仅在被 @ 时回复（可配置 `FEISHU_GROUP_ACCESS`）
 - **流式回复**：默认对话路径下，先发一条「思考中…」占位消息，再边生成边调用飞书「更新消息」接口更新同一条消息（约 0.4 秒节流，避免限频）
 - **交易所资金费率**：通过 **ccxt** 请求交易所 API，提供 `get_funding_rate` 工具（LangChain Tool）及 `/资金费率` skill；**默认对话已接入 Agent**，自然语言问「Binance 今日 BTC 资金费率是多少？」等会由 Agent 自动调工具并整理回复；**资金费率结果支持飞书卡片展示**（标题 + 各交易所费率块 + 下一结算时间）
+- **多交易所流动性深度对比**：Agent 工具 `get_liquidity_depth_multi_tool`，一次传入多所（如 "okx,binance"）与标的（如 ETH），按 **万1(0.01%)、万5(0.05%)、微观(0.1%)、紧密(0.5%)、核心(1%)** 五档返回深度（USDT），大模型基于该五档给出对比分析
 - **可扩展**：可在此项目上增加 RAG、Agent+Tools 等
 
 ## 环境要求
@@ -83,7 +84,7 @@ lnagchain-lk/
 ├── main_webhook.py      # Webhook 模式入口（请求地址）
 ├── main.py              # WebSocket 模式入口（若平台仍支持）
 ├── handlers.py          # 事件处理（消息解析、LangChain 回复）
-├── tools/               # LangChain 工具：get_funding_rate（ccxt）
+├── tools/               # LangChain 工具：get_funding_rate、get_liquidity_depth_multi（ccxt）
 ├── feishu_doc.py        # 飞书文档/知识库链接解析与正文拉取
 ├── skills/              # 技能：/btc、/rank、/资金费率、网页抓取等
 ├── lark_client.py       # 飞书 HTTP 客户端与发送消息
