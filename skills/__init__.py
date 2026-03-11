@@ -61,6 +61,7 @@ def get_all_skills() -> list[Skill]:
 def _register_builtin_skills() -> None:
     from skills.btc import btc_skill
     from skills.fetch import fetch_skill
+    from skills.funding_rate import funding_rate_skill
     from skills.new_doc import new_doc_skill
     from skills.rank import rank_skill
 
@@ -68,6 +69,7 @@ def _register_builtin_skills() -> None:
     register(rank_skill)
     register(fetch_skill)
     register(new_doc_skill)
+    register(funding_rate_skill)
 
 
 # 导入时自动注册内置 skills

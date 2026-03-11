@@ -11,7 +11,8 @@
 - **直接创建 Lark 文档**：说「新建 lark 文档」「帮我新建一个 xxx 文档」或发 `/新建文档` 时，机器人会**直接调用飞书 API 创建云文档**并返回链接（需应用有云文档创建权限；可选配置 `FEISHU_DOC_BASE_URL` 以返回可点击链接）
 - **群聊**：群内仅在被 @ 时回复（可配置 `FEISHU_GROUP_ACCESS`）
 - **流式回复**：默认对话路径下，先发一条「思考中…」占位消息，再边生成边调用飞书「更新消息」接口更新同一条消息（约 0.4 秒节流，避免限频）
-- **可扩展**：可在此项目上增加 RAG、Tools 等
+- **交易所资金费率**：通过 **ccxt** 请求交易所 API，提供 `get_funding_rate` 工具（LangChain Tool）及 `/资金费率` skill；**默认对话已接入 Agent**，自然语言问「Binance 今日 BTC 资金费率是多少？」等会由 Agent 自动调工具并整理回复；**资金费率结果支持飞书卡片展示**（标题 + 各交易所费率块 + 下一结算时间）
+- **可扩展**：可在此项目上增加 RAG、Agent+Tools 等
 
 ## 环境要求
 
@@ -82,8 +83,9 @@ lnagchain-lk/
 ├── main_webhook.py      # Webhook 模式入口（请求地址）
 ├── main.py              # WebSocket 模式入口（若平台仍支持）
 ├── handlers.py          # 事件处理（消息解析、LangChain 回复）
+├── tools/               # LangChain 工具：get_funding_rate（ccxt）
 ├── feishu_doc.py        # 飞书文档/知识库链接解析与正文拉取
-├── skills/              # 技能：/btc、/rank、网页抓取等
+├── skills/              # 技能：/btc、/rank、/资金费率、网页抓取等
 ├── lark_client.py       # 飞书 HTTP 客户端与发送消息
 ├── langchain_agent.py   # LangChain 对话链（可改为 Agent/RAG）
 ├── config.py            # 配置加载与校验

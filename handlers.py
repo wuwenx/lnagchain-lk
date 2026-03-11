@@ -14,7 +14,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from config import FEISHU_GROUP_ACCESS
 from feishu_doc import extract_document_ids, extract_wiki_node_tokens, fetch_documents_content
 from langchain_agent import reply as langchain_reply, reply_stream as langchain_reply_stream
-from lark_client import send_text_message, update_text_message
+from lark_client import send_text_message, send_card_message, update_text_message
 from skills import resolve_skill
 from skills.fetch import fetch_skill, should_trigger_fetch
 
@@ -131,8 +131,13 @@ def handle_message(data) -> None:
                 placeholder = "思考中…"
                 message_id = send_text_message(chat_id, placeholder)
                 if not message_id:
-                    answer = langchain_reply(text, history=history, document_context=document_context)
-                    if answer:
+                    result = langchain_reply(text, history=history, document_context=document_context)
+                    answer = result[0] if isinstance(result, tuple) else result
+                    card = result[1] if isinstance(result, tuple) and len(result) > 1 else None
+                    if card:
+                        send_card_message(chat_id, card)
+                        _append_to_history(chat_id, text, "✅ 见下方卡片")
+                    elif answer:
                         send_text_message(chat_id, answer)
                         _append_to_history(chat_id, text, answer)
                     else:
@@ -141,13 +146,22 @@ def handle_message(data) -> None:
                 last_updated_at = 0.0
                 throttle_interval = 0.4  # 秒，避免更新消息过于频繁
                 answer = ""
-                for accumulated in langchain_reply_stream(text, history=history, document_context=document_context):
-                    answer = accumulated
+                card = None
+                for chunk in langchain_reply_stream(text, history=history, document_context=document_context):
+                    if isinstance(chunk, tuple) and len(chunk) >= 2:
+                        answer, card = chunk[0], chunk[1]
+                    else:
+                        answer = chunk if isinstance(chunk, str) else ""
+                        card = None
                     now = time.monotonic()
                     if now - last_updated_at >= throttle_interval:
-                        update_text_message(message_id, accumulated)
+                        update_text_message(message_id, answer or "思考中…")
                         last_updated_at = now
-                if answer:
+                if card:
+                    send_card_message(chat_id, card)
+                    update_text_message(message_id, "✅ 见下方卡片")
+                    _append_to_history(chat_id, text, "✅ 见下方卡片")
+                elif answer:
                     update_text_message(message_id, answer)
                     _append_to_history(chat_id, text, answer)
                 else:

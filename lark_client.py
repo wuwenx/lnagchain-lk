@@ -104,6 +104,97 @@ def update_text_message(message_id: str, text: str) -> bool:
         return False
 
 
+def send_card_message(chat_id: str, card: dict) -> str | None:
+    """
+    向指定会话发送交互式卡片消息。
+    :param chat_id: 会话 ID（chat_id）
+    :param card: 飞书卡片 JSON 对象（config/header/elements）
+    :return: message_id，失败返回 None
+    """
+    try:
+        body = (
+            CreateMessageRequestBody.builder()
+            .receive_id(chat_id)
+            .msg_type("interactive")
+            .content(json.dumps(card, ensure_ascii=False))
+            .build()
+        )
+        req = (
+            CreateMessageRequest.builder()
+            .receive_id_type("chat_id")
+            .request_body(body)
+            .build()
+        )
+        resp = get_client().im.v1.message.create(req)
+        if not resp.success():
+            logger.error("send card failed: %s", resp.raw.content)
+            return None
+        return getattr(resp.data, "message_id", None)
+    except Exception as e:
+        logger.exception("send_card_message error: %s", e)
+        return None
+
+
+def build_funding_rate_card(lines: list[dict]) -> dict:
+    """
+    根据资金费率数据构建飞书卡片。lines 每项为 {"exchange": "Binance", "symbol": "BTC", "rate_pct": "-0.01190", "next_settlement": "UTC 2026-03-11 08:00"} 或错误信息 {"error": "..."}。
+    """
+    elements = []
+    for i, row in enumerate(lines):
+        if row.get("error"):
+            elements.append({
+                "tag": "div",
+                "text": {"tag": "plain_text", "content": (row.get("error") or "")[:200], "lines": 2},
+            })
+        else:
+            ex = row.get("exchange", "")
+            sym = row.get("symbol", "BTC")
+            rate = row.get("rate_pct", "")
+            next_ts = row.get("next_settlement", "")
+            content = f"**{ex}** {sym}\n费率: {rate}%"
+            if next_ts:
+                content += f"\n下一结算: {next_ts}"
+            elements.append({
+                "tag": "div",
+                "text": {"tag": "lark_md", "content": content},
+            })
+        if i < len(lines) - 1:
+            elements.append({"tag": "hr"})
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": "📊 永续合约资金费率", "lines": 1},
+            "template": "blue",
+        },
+        "elements": elements,
+    }
+
+
+def parse_funding_rate_tool_output(text: str) -> list[dict]:
+    """
+    从 get_funding_rate / get_funding_rates_multi 的工具输出文本解析出结构化行，用于构建卡片。
+    成功行格式: "BINANCE BTC 当前资金费率: -0.01190%（下一结算: UTC 2026-03-11 08:00）"
+    """
+    import re
+    lines = []
+    for line in (text or "").strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        m = re.match(r"([A-Za-z0-9]+)\s+(\w+)\s+当前资金费率:\s*([^%（）]+)%(?:\s*（下一结算:\s*([^）]+)）)?", line)
+        if m:
+            lines.append({
+                "exchange": m.group(1).upper(),
+                "symbol": m.group(2),
+                "rate_pct": m.group(3).strip(),
+                "next_settlement": (m.group(4) or "").strip(),
+            })
+        else:
+            if "资金费率" in line or "失败" in line or "错误" in line or "未找到" in line:
+                lines.append({"error": line[:200]})
+    return lines
+
+
 def create_lark_document(title: str, folder_token: str = "") -> tuple[str | None, str | None]:
     """
     在飞书云文档中创建一篇新文档（仅标题，正文为空）。
