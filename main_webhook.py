@@ -21,6 +21,7 @@ from config import (
     WEBHOOK_PORT,
     validate_webhook_config,
 )
+from gitlab_webhook import handle_gitlab_webhook
 from handlers import build_event_handler
 
 logging.basicConfig(
@@ -81,6 +82,27 @@ async def lark_webhook(request: Request):
     return _response_to_http(raw_resp)
 
 
+GITLAB_WEBHOOK_PATH = "/webhook/gitlab"
+
+
+@app.post(GITLAB_WEBHOOK_PATH)
+async def gitlab_webhook(request: Request):
+    """
+    接收 GitLab Webhook（如 Merge request events）。
+    GitLab 配置：Settings → Webhooks → URL = https://你的域名/webhook/gitlab，勾选 Merge request events。
+    若配置了 GITLAB_WEBHOOK_SECRET，请在同一页填写相同的 Secret token。
+    """
+    body = await request.body()
+    event = request.headers.get("X-Gitlab-Event", "").strip()
+    token = request.headers.get("X-Gitlab-Token", "").strip()
+    logger.info("GitLab webhook received: X-Gitlab-Event=%s, body_len=%d", event, len(body))
+    handled, err = handle_gitlab_webhook(body, event, token or None)
+    if err:
+        logger.warning("GitLab webhook rejected: %s", err)
+        return Response(content=err, status_code=403)
+    return Response(content=b'{"ok":true}', status_code=200, media_type="application/json")
+
+
 def main():
     errors = validate_webhook_config()
     if errors:
@@ -92,6 +114,7 @@ def main():
     except ValueError:
         port = 9000
     logger.info("Starting Webhook server at http://%s:%s path=%s", WEBHOOK_HOST, port, WEBHOOK_PATH or "/")
+    logger.info("GitLab MR Webhook URL: http://%s:%s%s", WEBHOOK_HOST, port, GITLAB_WEBHOOK_PATH)
     import uvicorn
     uvicorn.run(app, host=WEBHOOK_HOST, port=port)
 

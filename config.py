@@ -42,6 +42,21 @@ OPENAI_MODEL = _str("OPENAI_MODEL", "gpt-4o-mini")
 # CoinMarketCap API（/rank skill 交易所排名，可选）
 CMC_API_KEY = _str("CMC_API_KEY")
 
+# JKS（Jenkins）发板：触发构建
+JKS_URL = _str("JKS_URL", "").rstrip("/")
+JKS_USERNAME = _str("JKS_USERNAME", "")
+JKS_TOKEN = _str("JKS_TOKEN", "")
+JKS_JOB_NAME = _str("JKS_JOB_NAME", "")
+
+# GitLab Webhook → 飞书 MR 卡片
+# 在 GitLab 项目/群组 Webhook 里填的 Secret token，可选
+GITLAB_WEBHOOK_SECRET = _str("GITLAB_WEBHOOK_SECRET", "")
+# 接收 MR/Push 通知的飞书群 chat_id
+FEISHU_MR_CHAT_ID = _str("FEISHU_MR_CHAT_ID", "")
+
+# Push 卡片：回滚 tag 默认值（commit message 中未写回滚tag 时使用）
+GITLAB_PUSH_ROLLBACK_TAG = _str("GITLAB_PUSH_ROLLBACK_TAG", "PROD-20260205-maintainOuerDepth")
+
 
 def validate_config() -> list[str]:
     """校验必填配置，返回错误信息列表。"""

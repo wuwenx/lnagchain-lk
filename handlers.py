@@ -200,6 +200,7 @@ def build_event_handler(encrypt_key: str, verification_token: str):
         .register_p2_im_message_recalled_v1(_noop)
         .register_p2_im_message_reaction_created_v1(_noop)
         .register_p2_im_message_reaction_deleted_v1(_noop)
+        .register_p2_im_chat_updated_v1(_noop)
         .register_p2_vc_meeting_all_meeting_started_v1(_noop)
         .build()
     )
