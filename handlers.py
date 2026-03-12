@@ -5,20 +5,25 @@
 """
 import json
 import logging
+import re
 import threading
-import time
 
 import lark_oapi as lark
 from langchain_core.messages import AIMessage, HumanMessage
 
-from config import FEISHU_GROUP_ACCESS
+from config import FEISHU_GROUP_ACCESS, FEISHU_BOT_OPEN_ID
 from feishu_doc import extract_document_ids, extract_wiki_node_tokens, fetch_documents_content
-from langchain_agent import reply as langchain_reply, reply_stream as langchain_reply_stream
+from langgraph_app import run as graph_run
 from lark_client import send_text_message, send_card_message, update_text_message
-from skills import resolve_skill
-from skills.fetch import fetch_skill, should_trigger_fetch
 
 logger = logging.getLogger(__name__)
+
+# 飞书消息里 @ 的格式可能是：
+# 1) <at user_id="ou_xxx">名字</at>
+# 2) 群聊里为 @_user_1 或 @ou_xxx 等
+_AT_TAG_PATTERN = re.compile(r"<at[^>]*>[^<]*</at>\s*", re.IGNORECASE)
+# 开头的 @ 提及（如 @_user_1、@OpenClaw、@ou_xxx），直到第一个空格或结尾
+_AT_MENTION_LEADING = re.compile(r"^@\S+\s*", re.IGNORECASE)
 
 # 按 chat_id 维护多轮对话历史，格式：list of [HumanMessage, AIMessage, ...]
 _chat_histories: dict[str, list] = {}
@@ -57,6 +62,17 @@ def _extract_text_from_content(content: str, message_type: str) -> str:
         return content.strip()
 
 
+def _strip_mention_tags(text: str) -> str:
+    """去掉飞书 @ 标签，避免「@OpenClaw /jks」无法命中 skill。"""
+    if not text:
+        return text
+    # 先去掉 <at user_id="xxx">名字</at>
+    t = _AT_TAG_PATTERN.sub("", text)
+    # 再去掉开头的 @xxx（如 @_user_1、@OpenClaw）
+    t = _AT_MENTION_LEADING.sub("", t)
+    return t.strip()
+
+
 def _get_message(data):
     """兼容 WebSocket（data.message）与 Webhook（data.event.message）。"""
     if hasattr(data, "message") and data.message is not None:
@@ -66,8 +82,29 @@ def _get_message(data):
     return None
 
 
+def _mentions_include_our_bot(message) -> bool:
+    """事件里 mentions 是否包含本机器人（群聊@机器人 判定）。"""
+    if not FEISHU_BOT_OPEN_ID:
+        return True
+    mentions = getattr(message, "mentions", None) or []
+    for m in mentions:
+        if not m:
+            continue
+        # 兼容 dict 或对象：id 可能为 open_id 字符串，或 id.open_id
+        mid = m.get("id") if isinstance(m, dict) else getattr(m, "id", None)
+        if mid is None:
+            continue
+        if isinstance(mid, str) and mid == FEISHU_BOT_OPEN_ID:
+            return True
+        if hasattr(mid, "open_id") and getattr(mid, "open_id", None) == FEISHU_BOT_OPEN_ID:
+            return True
+        if isinstance(mid, dict) and mid.get("open_id") == FEISHU_BOT_OPEN_ID:
+            return True
+    return False
+
+
 def _should_reply_to_chat(data) -> bool:
-    """群聊时仅在被 @ 时回复；私聊直接回复。"""
+    """群聊时仅在被 @ 本机器人时回复；私聊直接回复。走「群聊中@机器人」事件判定。"""
     try:
         message = _get_message(data)
         if not message:
@@ -77,8 +114,18 @@ def _should_reply_to_chat(data) -> bool:
             return True
         if FEISHU_GROUP_ACCESS == "disabled":
             return False
+        if FEISHU_BOT_OPEN_ID:
+            if not _mentions_include_our_bot(message):
+                logger.debug("group message: FEISHU_BOT_OPEN_ID set but our bot not in mentions, skip")
+                return False
+            return True
         mentions = getattr(message, "mentions", None) or []
-        return len(mentions) > 0
+        if len(mentions) > 0:
+            return True
+        content = getattr(message, "content", "") or ""
+        if "<at" in content.lower():
+            return True
+        return False
     except Exception:
         return True
 
@@ -102,6 +149,13 @@ def handle_message(data) -> None:
         if not text:
             logger.info("empty text or non-text message, skip")
             return
+        text_before_strip = text
+        text = _strip_mention_tags(text)
+        # strip 与 FEISHU_BOT_OPEN_ID 无关：前者用于「匹配指令」（content 去 @ 后得到 /jks），后者用于「是否回复」（mentions 含本 bot 才回）
+        logger.info("message text: raw=%r, after_strip=%r", text_before_strip[:150], text[:150])
+        if not text:
+            logger.info("message is only @ mention, skip")
+            return
         # 若消息中含飞书文档或知识库链接，拉取正文作为上下文
         doc_ids = extract_document_ids(text)
         wiki_tokens = extract_wiki_node_tokens(text)
@@ -114,64 +168,22 @@ def handle_message(data) -> None:
                 len(document_context or ""),
             )
         logger.info("user message: %s", text[:200])
-        if should_trigger_fetch(text):
-            logger.info("trigger fetch skill (URL + 获取/抓取)")
-            answer = fetch_skill.run(text, document_context=document_context, chat_id=chat_id)
-            used_skill = True
+        history = _get_history(chat_id)
+        reply_text, reply_card = graph_run(
+            user_message=text,
+            document_context=document_context or "",
+            chat_id=chat_id,
+            history=history,
+        )
+        if reply_card:
+            send_card_message(chat_id, reply_card)
+            _append_to_history(chat_id, text, "✅ 见下方卡片")
+        elif reply_text:
+            send_text_message(chat_id, reply_text)
+            _append_to_history(chat_id, text, reply_text)
         else:
-            skill = resolve_skill(text)
-            if skill:
-                logger.info("resolved skill: %s", skill.id)
-                answer = skill.run(text, document_context=document_context, chat_id=chat_id)
-                used_skill = True
-            else:
-                history = _get_history(chat_id)
-                used_skill = False
-                # 流式回复：先发占位消息，再边生成边更新同一条消息
-                placeholder = "思考中…"
-                message_id = send_text_message(chat_id, placeholder)
-                if not message_id:
-                    result = langchain_reply(text, history=history, document_context=document_context)
-                    answer = result[0] if isinstance(result, tuple) else result
-                    card = result[1] if isinstance(result, tuple) and len(result) > 1 else None
-                    if card:
-                        send_card_message(chat_id, card)
-                        _append_to_history(chat_id, text, "✅ 见下方卡片")
-                    elif answer:
-                        send_text_message(chat_id, answer)
-                        _append_to_history(chat_id, text, answer)
-                    else:
-                        send_text_message(chat_id, "抱歉，我暂时无法生成回复。")
-                    return
-                last_updated_at = 0.0
-                throttle_interval = 0.4  # 秒，避免更新消息过于频繁
-                answer = ""
-                card = None
-                for chunk in langchain_reply_stream(text, history=history, document_context=document_context):
-                    if isinstance(chunk, tuple) and len(chunk) >= 2:
-                        answer, card = chunk[0], chunk[1]
-                    else:
-                        answer = chunk if isinstance(chunk, str) else ""
-                        card = None
-                    now = time.monotonic()
-                    if now - last_updated_at >= throttle_interval:
-                        update_text_message(message_id, answer or "思考中…")
-                        last_updated_at = now
-                if card:
-                    send_card_message(chat_id, card)
-                    update_text_message(message_id, "✅ 见下方卡片")
-                    _append_to_history(chat_id, text, "✅ 见下方卡片")
-                elif answer:
-                    update_text_message(message_id, answer)
-                    _append_to_history(chat_id, text, answer)
-                else:
-                    update_text_message(message_id, "抱歉，我暂时无法生成回复。")
-                logger.info("replied to chat_id=%s (streaming)", chat_id)
-        if used_skill and answer:
-            send_text_message(chat_id, answer)
-            logger.info("replied to chat_id=%s", chat_id)
-        elif used_skill and not answer:
             send_text_message(chat_id, "抱歉，我暂时无法生成回复。")
+        logger.info("replied to chat_id=%s", chat_id)
     except Exception as e:
         logger.exception("handle_message error: %s", e)
 

@@ -54,6 +54,10 @@ GITLAB_WEBHOOK_SECRET = _str("GITLAB_WEBHOOK_SECRET", "")
 # 接收 MR/Push 通知的飞书群 chat_id
 FEISHU_MR_CHAT_ID = _str("FEISHU_MR_CHAT_ID", "")
 
+# 群聊 @ 机器人 判定：若设置，则仅当 mentions 中包含该 open_id 时才回复（严格走「群聊中@机器人」事件）
+# 不设则沿用原逻辑：群聊有任意 @ 或 content 含 <at 即回复
+FEISHU_BOT_OPEN_ID = _str("FEISHU_BOT_OPEN_ID", "ou_621c9a4fa6b4b678699c72e05649964c")
+
 # Push 卡片：回滚 tag 默认值（commit message 中未写回滚tag 时使用）
 GITLAB_PUSH_ROLLBACK_TAG = _str("GITLAB_PUSH_ROLLBACK_TAG", "PROD-20260205-maintainOuerDepth")
 
