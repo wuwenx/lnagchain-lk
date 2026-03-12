@@ -61,6 +61,9 @@ FEISHU_BOT_OPEN_ID = _str("FEISHU_BOT_OPEN_ID", "ou_621c9a4fa6b4b678699c72e05649
 # Push 卡片：回滚 tag 默认值（commit message 中未写回滚tag 时使用）
 GITLAB_PUSH_ROLLBACK_TAG = _str("GITLAB_PUSH_ROLLBACK_TAG", "PROD-20260205-maintainOuerDepth")
 
+# Toobit 24h 成交量 Top20 定时推送：接收卡片的飞书群 chat_id，不填则不定时推送 oc_70f3a7c325ba36ca6b22282e346ecfce
+FEISHU_TOOBIT_24H_CHAT_ID = _str("FEISHU_TOOBIT_24H_CHAT_ID", "")
+
 
 def validate_config() -> list[str]:
     """校验必填配置，返回错误信息列表。"""

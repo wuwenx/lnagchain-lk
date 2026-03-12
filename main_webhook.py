@@ -8,13 +8,16 @@ os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from lark_oapi.core.exception import EventException
 from lark_oapi.core.model import RawRequest, RawResponse
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from config import (
     FEISHU_ENCRYPT_KEY,
+    FEISHU_TOOBIT_24H_CHAT_ID,
     FEISHU_VERIFICATION_TOKEN,
     WEBHOOK_HOST,
     WEBHOOK_PATH,
@@ -23,6 +26,7 @@ from config import (
 )
 from gitlab_webhook import handle_gitlab_webhook
 from handlers import build_event_handler
+from tasks.toobit_24h import run_toobit_24h_push
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,7 +34,32 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="LangChain + Lark Webhook")
+_scheduler: BackgroundScheduler | None = None
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """应用生命周期：启动时启动定时任务，关闭时停止。"""
+    global _scheduler
+    if (FEISHU_TOOBIT_24H_CHAT_ID or "").strip():
+        _scheduler = BackgroundScheduler()
+        _scheduler.add_job(run_toobit_24h_push, "interval", minutes=5, id="toobit_24h")
+        _scheduler.start()
+        logger.info("Toobit 24h scheduler started (every 5 min -> %s)", (FEISHU_TOOBIT_24H_CHAT_ID or "")[:20] + "...")
+        try:
+            run_toobit_24h_push()
+        except Exception as e:
+            logger.exception("Toobit 24h first run error: %s", e)
+    else:
+        logger.debug("FEISHU_TOOBIT_24H_CHAT_ID not set, Toobit 24h scheduler disabled")
+    yield
+    if _scheduler:
+        _scheduler.shutdown(wait=False)
+        _scheduler = None
+        logger.info("Toobit 24h scheduler stopped")
+
+
+app = FastAPI(title="LangChain + Lark Webhook", lifespan=_lifespan)
 event_handler = None
 
 
