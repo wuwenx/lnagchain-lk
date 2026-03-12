@@ -1,6 +1,6 @@
 """
-多交易所流动性深度对比工具：一次请求多个交易所**永续合约**订单簿，按 万1(0.01%)/万5(0.05%)/微观(0.1%)/紧密(0.5%)/核心(1%) 五档计算深度，供 Agent 分析。
-不走 skill，仅作为 Agent 工具。
+多交易所流动性深度对比工具：一次请求多个交易所**永续合约**订单簿，按多档百分比计算深度，供 Agent 分析。
+订单簿拉取 limit=1000，档位按「拿到多少数据就分析多少」原则默认多档输出。
 """
 import logging
 
@@ -9,7 +9,10 @@ from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
 
-# 深度档位：与截图一致 万1、万5、微观、紧密、核心
+# 默认深度档位：多档覆盖万1～核心，拿到订单簿数据后按这些档位汇总展示（可传 depth_levels 覆盖）
+DEFAULT_DEPTH_LEVELS_PCT = [0.01, 0.02, 0.03, 0.05, 0.07, 0.1, 0.15, 0.2, 0.3, 0.5, 0.7, 1.0]
+DEFAULT_DEPTH_LABELS = [f"{p}%" for p in DEFAULT_DEPTH_LEVELS_PCT]
+# 兼容旧「五档」简称（若只传 5 个时仍可显示万1/万5/微观/紧密/核心）
 DEPTH_LEVELS_PCT = [0.01, 0.05, 0.1, 0.5, 1.0]
 DEPTH_LABELS = ["万1(0.01%)", "万5(0.05%)", "微观(0.1%)", "紧密(0.5%)", "核心(1%)"]
 
@@ -123,21 +126,21 @@ def get_liquidity_depth_multi(
     if not eids:
         return "未解析到有效交易所。"
     if not depth_levels or not depth_levels.strip():
-        pcts = DEPTH_LEVELS_PCT
-        labels = DEPTH_LABELS
+        pcts = DEFAULT_DEPTH_LEVELS_PCT
+        labels = DEFAULT_DEPTH_LABELS
     else:
         try:
             pcts = [float(x.strip()) for x in depth_levels.split(",") if x.strip()]
             labels = [f"{p}%" for p in pcts]
         except ValueError:
-            pcts = DEPTH_LEVELS_PCT
-            labels = DEPTH_LABELS
+            pcts = DEFAULT_DEPTH_LEVELS_PCT
+            labels = DEFAULT_DEPTH_LABELS
     asset = symbol.split("/")[0]
     lines = []
     for eid in eids:
         try:
             ex = _get_exchange_swap(eid)
-            ob = ex.fetch_order_book(symbol, limit=500)
+            ob = ex.fetch_order_book(symbol, limit=1000)
             bids = ob.get("bids") or []
             asks = ob.get("asks") or []
             if not bids or not asks:
@@ -180,15 +183,15 @@ def get_liquidity_depth_multi(
 def get_liquidity_depth_multi_tool(
     exchange_ids: str,
     symbol: str = "ETH",
-    depth_levels: str = "0.01,0.05,0.1,0.5,1",
+    depth_levels: str = "0.01,0.02,0.03,0.05,0.07,0.1,0.15,0.2,0.3,0.5,0.7,1",
     simulate_size: float = 100,
 ) -> str:
     """
     一次性查询多个交易所的**永续合约**流动性深度，用于对比分析。当用户问「对比 A 和 B 的 ETH 流动性深度」「多交易所深度对比」时，请用本工具一次传入所有交易所。
-    深度档位固定为：万1(0.01%)、万5(0.05%)、微观(0.1%)、紧密(0.5%)、核心(1%)，分别表示中间价±该百分比范围内的订单簿深度（USDT）。买盘与卖盘单独计算、单独输出；每档会输出该档最低价、最高价及本所分析的档位数。默认按 simulate_size 模拟买入/卖出该数量标的的滑点与均价（默认 100 个标的）。**若用户提到具体数量（如「买入10个btc的滑点」「算100个eth的滑点」），请将该数字作为 simulate_size 传入，并与 symbol 对应。**
+    订单簿拉取 1000 档数据，按 depth_levels 给出的多档百分比汇总展示（默认 12 档：0.01%～1%），拿到多少数据就分析多少档。买盘与卖盘单独计算、单独输出；每档会输出该档最低价、最高价及本所分析的档位数。默认按 simulate_size 模拟买入/卖出该数量标的的滑点与均价（默认 100 个标的）。**若用户提到具体数量（如「买入10个btc的滑点」「算100个eth的滑点」），请将该数字作为 simulate_size 传入，并与 symbol 对应。**
     exchange_ids: 多个交易所 id，英文逗号分隔，如 "okx,binance" 或 "okx,binance,bybit"。
     symbol: 标的，如 ETH、BTC，默认 ETH（对应永续 ETH/USDT:USDT）。**必须按用户原话传入：用户说 1000PEPE 就传 "1000PEPE"，不要改成 PEPE 或其他。**
-    depth_levels: 可选，逗号分隔的百分比，默认 "0.01,0.05,0.1,0.5,1" 对应万1/万5/微观/紧密/核心。
+    depth_levels: 可选，逗号分隔的百分比，默认多档 "0.01,0.02,0.03,0.05,0.07,0.1,0.15,0.2,0.3,0.5,0.7,1"；若只传 "0.01,0.05,0.1,0.5,1" 则仅分析五档。
     simulate_size: 模拟数量（标的币个数），用于计算买入/卖出该数量时的滑点与均价，默认 100。用户若说「10个btc的滑点」则传 symbol=BTC、simulate_size=10。
     """
     return get_liquidity_depth_multi(

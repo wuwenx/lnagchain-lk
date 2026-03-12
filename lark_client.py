@@ -395,7 +395,7 @@ def build_liquidity_depth_card(parsed: dict, conclusion_text: str = "") -> dict:
     # 3. 结论模块
     conclusion = (conclusion_text or "").strip()
     if not conclusion:
-        conclusion = "请结合上方各档位数据对比各所流动性差异，可从万1/万5/微观/紧密/核心五档分别说明。"
+        conclusion = "请结合上方各档位数据对比各所流动性差异，按各档位分别说明买盘/卖盘深度与价差。"
     elements.append({
         "tag": "div",
         "text": {"tag": "lark_md", "content": "**💡 核心结论**\n" + conclusion},
