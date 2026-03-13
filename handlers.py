@@ -11,7 +11,13 @@ import threading
 import lark_oapi as lark
 from langchain_core.messages import AIMessage, HumanMessage
 
-from config import FEISHU_GROUP_ACCESS, FEISHU_BOT_OPEN_ID
+from config import (
+    FEISHU_GROUP_ACCESS,
+    FEISHU_BOT_OPEN_ID,
+    FEISHU_PIPELINE_STAGE_A_CHAT_ID,
+    FEISHU_PIPELINE_STAGE_B_CHAT_ID,
+    FEISHU_PIPELINE_STAGE_C_CHAT_ID,
+)
 from feishu_doc import extract_document_ids, extract_wiki_node_tokens, fetch_documents_content
 from langgraph_app import run as graph_run
 from lark_client import send_text_message, send_card_message, update_text_message
@@ -130,8 +136,79 @@ def _should_reply_to_chat(data) -> bool:
         return True
 
 
+def _run_pipeline(user_text: str, document_context: str, chat_id_a: str) -> None:
+    """
+    多群流水线：A 需求分析 → B 方案生成 → C 总结输出。
+    每阶段结果发到对应群，并作为下一阶段输入；最终结果发到 C 群。
+    """
+    chat_id_b = (FEISHU_PIPELINE_STAGE_B_CHAT_ID or "").strip()
+    chat_id_c = (FEISHU_PIPELINE_STAGE_C_CHAT_ID or "").strip()
+    if not chat_id_b or not chat_id_c:
+        logger.warning("pipeline B/C chat_id not set, fallback to single reply in A")
+        reply_text, reply_card = graph_run(
+            user_message=user_text,
+            document_context=document_context or "",
+            chat_id=chat_id_a,
+            history=[],
+        )
+        if reply_card:
+            send_card_message(chat_id_a, reply_card)
+        elif reply_text:
+            send_text_message(chat_id_a, reply_text)
+        else:
+            send_text_message(chat_id_a, "抱歉，流水线未完整配置或执行失败。")
+        return
+    # 阶段 1：需求分析
+    prompt_1 = "请对以下内容进行需求分析，输出结构化的需求说明（可包含背景、目标、约束等）：\n\n" + user_text
+    if document_context:
+        prompt_1 = "【附：文档/网页上下文】\n" + document_context + "\n\n---\n\n" + prompt_1
+    reply_1, card_1 = graph_run(
+        user_message=prompt_1,
+        document_context="",
+        chat_id=chat_id_a,
+        history=[],
+    )
+    result_1 = reply_1 or (("✅ 见下方卡片" if card_1 else "") or "需求分析无文本输出")
+    if card_1:
+        send_card_message(chat_id_a, card_1)
+    else:
+        send_text_message(chat_id_a, result_1)
+    send_text_message(chat_id_b, "【需求分析结果】\n" + (reply_1 or "（见上条卡片）"))
+    logger.info("pipeline stage 1 done, result len=%d", len(result_1))
+    # 阶段 2：方案生成
+    prompt_2 = "请根据以下需求分析结果，生成具体方案（步骤、资源、时间等）：\n\n" + result_1
+    reply_2, card_2 = graph_run(
+        user_message=prompt_2,
+        document_context="",
+        chat_id=chat_id_b,
+        history=[],
+    )
+    result_2 = reply_2 or (("✅ 见下方卡片" if card_2 else "") or "方案生成无文本输出")
+    if card_2:
+        send_card_message(chat_id_b, card_2)
+    else:
+        send_text_message(chat_id_b, result_2)
+    send_text_message(chat_id_c, "【方案】\n" + (reply_2 or "（见上条卡片）"))
+    logger.info("pipeline stage 2 done, result len=%d", len(result_2))
+    # 阶段 3：总结输出
+    prompt_3 = "请对以下方案进行总结输出，给出可执行的结论与要点：\n\n" + result_2
+    reply_3, card_3 = graph_run(
+        user_message=prompt_3,
+        document_context="",
+        chat_id=chat_id_c,
+        history=[],
+    )
+    if card_3:
+        send_card_message(chat_id_c, card_3)
+    elif reply_3:
+        send_text_message(chat_id_c, reply_3)
+    else:
+        send_text_message(chat_id_c, "总结输出无内容。")
+    logger.info("pipeline stage 3 done, replied to C=%s", chat_id_c[:20] + "...")
+
+
 def handle_message(data) -> None:
-    """处理单条消息：取文本 → LangChain 回复 → 发回飞书。"""
+    """处理单条消息：取文本 → LangChain 回复 → 发回飞书。若来自流水线 A 群则走多群流水线。"""
     try:
         message = _get_message(data)
         if not message:
@@ -168,6 +245,13 @@ def handle_message(data) -> None:
                 len(document_context or ""),
             )
         logger.info("user message: %s", text[:200])
+        # 多群流水线：仅当消息来自 A 群且已配置 A 的 chat_id 时触发
+        pipeline_a = (FEISHU_PIPELINE_STAGE_A_CHAT_ID or "").strip()
+        if pipeline_a and chat_id == pipeline_a:
+            _run_pipeline(text, document_context or "", chat_id)
+            logger.info("pipeline completed for chat_id=%s", chat_id)
+            return
+        # 默认：单群单次回复
         history = _get_history(chat_id)
         reply_text, reply_card = graph_run(
             user_message=text,

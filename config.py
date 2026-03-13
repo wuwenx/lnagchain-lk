@@ -64,6 +64,11 @@ GITLAB_PUSH_ROLLBACK_TAG = _str("GITLAB_PUSH_ROLLBACK_TAG", "PROD-20260205-maint
 # Toobit 24h 成交量 Top20 定时推送：接收卡片的飞书群 chat_id，不填则不定时推送 oc_70f3a7c325ba36ca6b22282e346ecfce
 FEISHU_TOOBIT_24H_CHAT_ID = _str("FEISHU_TOOBIT_24H_CHAT_ID", "")
 
+# 多群流水线：A=需求分析 → B=方案生成 →“‘【】 C=总结输出。仅在 A 群 @ 机器人时触发整条流水线
+FEISHU_PIPELINE_STAGE_A_CHAT_ID = _str("FEISHU_PIPELINE_STAGE_A_CHAT_ID", "oc_c582c841a1ff3e5979d7d45d8bfc7a9f")
+FEISHU_PIPELINE_STAGE_B_CHAT_ID = _str("FEISHU_PIPELINE_STAGE_B_CHAT_ID", "oc_84bb99852bb8fbcf145375eed1e3d784")
+FEISHU_PIPELINE_STAGE_C_CHAT_ID = _str("FEISHU_PIPELINE_STAGE_C_CHAT_ID", "oc_8b3d5e5932f49263e67d3c09612912cd")
+
 
 def validate_config() -> list[str]:
     """校验必填配置，返回错误信息列表。"""

@@ -13,6 +13,7 @@
 - **流式回复**：默认对话路径下，先发一条「思考中…」占位消息，再边生成边调用飞书「更新消息」接口更新同一条消息（约 0.4 秒节流，避免限频）
 - **交易所资金费率**：通过 **ccxt** 请求交易所 API，提供 `get_funding_rate` 工具（LangChain Tool）及 `/资金费率` skill；**默认对话已接入 Agent**，自然语言问「Binance 今日 BTC 资金费率是多少？」等会由 Agent 自动调工具并整理回复；**资金费率结果支持飞书卡片展示**（标题 + 各交易所费率块 + 下一结算时间）
 - **多交易所流动性深度对比**：Agent 工具 `get_liquidity_depth_multi_tool`，一次传入多所（如 "okx,binance"）与标的（如 ETH），按**多档**（默认 12 档：0.01%～1%）返回深度（USDT），拿到多少订单簿数据就按多少档汇总分析
+- **多群流水线**：在 A 群 @ 机器人发消息时，自动走「A=需求分析 → B=方案生成 → C=总结输出」三阶段，结果依次发到 A、B、C 群，最终总结在 C 群输出（需在 `.env` 配置三个群的 `FEISHU_PIPELINE_STAGE_*_CHAT_ID`）
 - **可扩展**：可在此项目上增加 RAG、Agent+Tools 等
 
 ## 环境要求
@@ -76,6 +77,9 @@ cp .env.example .env
 | `FEISHU_DOC_BASE_URL` | 否 | 创建文档后返回的可点击链接根地址，如 `https://你的企业.larksuite.com`，不设则只返回 document_id |
 | `WEBHOOK_PORT` | 否 | Webhook 监听端口，默认 9000 |
 | `WEBHOOK_PATH` | 否 | Webhook 路径，默认 `/`（请求地址 = 公网URL + 此路径） |
+| `FEISHU_PIPELINE_STAGE_A_CHAT_ID` | 否 | 多群流水线 A 群（需求分析）chat_id，不填则不启用流水线 |
+| `FEISHU_PIPELINE_STAGE_B_CHAT_ID` | 否 | 多群流水线 B 群（方案生成）chat_id |
+| `FEISHU_PIPELINE_STAGE_C_CHAT_ID` | 否 | 多群流水线 C 群（总结输出）chat_id |
 
 ## 项目结构
 
