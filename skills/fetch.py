@@ -80,7 +80,8 @@ def run_fetch(
         "【用户问题】\n"
         f"{user_message}"
     )
-    return langchain_reply(prompt, document_context=None)
+    reply_text, _ = langchain_reply(prompt, document_context=None)
+    return reply_text or ""
 
 
 class FetchSkill:

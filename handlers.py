@@ -280,6 +280,11 @@ def handle_message(data) -> None:
             chat_id=chat_id,
             history=history,
         )
+        # 确保 reply_text 为字符串（若某节点误返回 tuple 则取首元素）
+        if isinstance(reply_text, tuple):
+            reply_text = (reply_text[0] if reply_text else "") or ""
+        else:
+            reply_text = (reply_text or "").strip() if reply_text else ""
         if reply_card:
             send_card_message(chat_id, reply_card)
             _append_to_history(chat_id, text, "✅ 见下方卡片")
@@ -319,6 +324,8 @@ def build_event_handler(encrypt_key: str, verification_token: str):
         .register_p2_im_message_reaction_deleted_v1(_noop)
         .register_p2_im_chat_updated_v1(_noop)
         .register_p2_im_chat_access_event_bot_p2p_chat_entered_v1(_noop)
+        .register_p2_customized_event("im.message.updated_v1", _noop)
         .register_p2_vc_meeting_all_meeting_started_v1(_noop)
+        .register_p2_vc_meeting_all_meeting_ended_v1(_noop)
         .build()
     )
