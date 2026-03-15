@@ -1,0 +1,96 @@
+"""
+/search skill：基于飞书开放平台「搜索文档与知识库」接口搜索企业内文档/知识库，再交由大模型总结汇总。
+触发：/search 关键词、搜索 xxx
+"""
+import logging
+
+from langchain_agent import reply as langchain_reply
+from lark_client import search_doc_wiki
+
+logger = logging.getLogger(__name__)
+
+# 搜索条数上限（供 LLM 总结）
+DEFAULT_PAGE_SIZE = 10
+
+
+def _format_search_results(items: list[dict]) -> str:
+    """将搜索结果格式化为一段文本，便于 LLM 阅读与汇总。"""
+    if not items:
+        return "（未找到匹配的文档或知识库条目）"
+    lines = []
+    for i, it in enumerate(items, 1):
+        title = it.get("title") or "(无标题)"
+        summary = (it.get("summary") or "").strip()
+        url = (it.get("url") or "").strip()
+        block = f"{i}. **{title}**\n   {summary or '（无摘要）'}"
+        if url:
+            block += f"\n   链接：{url}"
+        lines.append(block)
+    return "\n\n".join(lines)
+
+
+def run_search_doc(
+    user_message: str,
+    *,
+    document_context: str | None = None,
+    chat_id: str = "",
+    page_size: int = DEFAULT_PAGE_SIZE,
+    **kwargs,
+) -> str:
+    """
+    执行文档/知识库搜索：调用飞书 search v2 doc_wiki → 格式化为文本 → 大模型总结汇总。
+    user_message 应为去掉触发词后的查询关键词（如「/search 产品需求」→ 「产品需求」）。
+    """
+    query = (user_message or "").strip()
+    if not query:
+        return "请提供搜索关键词，例如：/search 产品需求"
+    items = search_doc_wiki(query, page_size=page_size)
+    if not items:
+        logger.info(
+            "search_doc skill: search_doc_wiki returned 0 items for query=%r (see lark_client logs for API status/body)",
+            query,
+        )
+        return f"未找到与「{query}」相关的文档或知识库内容。请确认应用已开通文档/知识库搜索权限（如 docx、wiki 只读），且该环境下接口可用。"
+    results_text = _format_search_results(items)
+    prompt = (
+        "以下是对企业内飞书文档与知识库的搜索结果（标题、摘要与链接）。"
+        "请根据用户的问题或关键词，对搜索结果做简洁的总结与汇总：提炼要点、可注明来源序号或链接，便于用户快速了解。"
+        "若结果与问题关联不强，可简要说明并建议更精确的关键词。\n\n"
+        "【搜索结果】\n"
+        f"{results_text}\n\n"
+        "【用户搜索/问题】\n"
+        f"{query}"
+    )
+    reply_text, _ = langchain_reply(prompt, document_context=None)
+    return reply_text or "未能生成汇总，请稍后重试。"
+
+
+class SearchDocSkill:
+    id = "search_doc"
+    name = "文档/知识库搜索"
+    description = "搜索企业内飞书文档与知识库并总结汇总（/search 关键词）"
+    trigger_commands = ["/search", "/serch", "搜索"]
+
+    def run(
+        self,
+        user_message: str,
+        *,
+        document_context: str | None = None,
+        chat_id: str = "",
+        **kwargs,
+    ) -> str:
+        # 去掉触发词，取关键词
+        text = (user_message or "").strip()
+        for cmd in self.trigger_commands:
+            if text.lower().startswith(cmd.lower()):
+                text = text[len(cmd) :].strip()
+                break
+        return run_search_doc(
+            text,
+            document_context=document_context,
+            chat_id=chat_id,
+            **kwargs,
+        )
+
+
+search_doc_skill = SearchDocSkill()

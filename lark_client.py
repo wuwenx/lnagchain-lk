@@ -5,7 +5,10 @@ WebSocket 事件处理在 main.py 中与 LangChain 桥接
 import json
 import logging
 
+import requests
 import lark_oapi as lark
+from lark_oapi.core.model import Config
+from lark_oapi.core.token.manager import TokenManager
 from lark_oapi.api.im.v1.model.create_message_request import CreateMessageRequest
 from lark_oapi.api.im.v1.model.create_message_request_body import CreateMessageRequestBody
 from lark_oapi.api.im.v1.model.create_message_reaction_request import CreateMessageReactionRequest
@@ -24,7 +27,6 @@ from lark_oapi.api.docx.v1.model.block import Block
 from lark_oapi.api.docx.v1.model.text import Text
 from lark_oapi.api.docx.v1.model.text_element import TextElement
 from lark_oapi.api.docx.v1.model.text_run import TextRun
-
 from config import FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_DOMAIN, FEISHU_DOC_BASE_URL
 
 logger = logging.getLogger(__name__)
@@ -445,6 +447,78 @@ def build_liquidity_depth_card(parsed: dict, conclusion_text: str = "") -> dict:
         },
         "elements": elements,
     }
+
+
+def _get_tenant_access_token() -> str | None:
+    """使用与 SDK 相同的逻辑获取 tenant_access_token，供直接 HTTP 调用使用。"""
+    if not FEISHU_APP_ID or not FEISHU_APP_SECRET:
+        return None
+    try:
+        config = Config()
+        config.app_id = FEISHU_APP_ID
+        config.app_secret = FEISHU_APP_SECRET
+        config.domain = FEISHU_DOMAIN or "https://open.feishu.cn"
+        return TokenManager.get_self_tenant_token(config)
+    except Exception as e:
+        logger.debug("_get_tenant_access_token failed: %s", e)
+        return None
+
+
+def search_doc_wiki(query: str, page_size: int = 10) -> list[dict]:
+    """
+    调用飞书开放平台「搜索文档与知识库」接口（search v2 doc_wiki/search），
+    返回匹配的文档/知识库条目列表，每项含 title_highlighted、summary_highlighted、url（若有）。
+    需应用具备 docx:document 与 wiki 相关读权限。使用 tenant_access_token 直连接口，避免 SDK 鉴权问题。
+    :param query: 搜索关键词
+    :param page_size: 返回条数上限，默认 10
+    :return: [{"title": str, "summary": str, "url": str | None}, ...]，失败或无权时返回 []
+    """
+    if not query or not query.strip():
+        return []
+    query = query.strip()
+    logger.info("search_doc_wiki request: query=%r page_size=%s", query, page_size)
+    try:
+        token = _get_tenant_access_token()
+        if not token:
+            logger.warning("search_doc_wiki: no tenant_access_token (check FEISHU_APP_ID/FEISHU_APP_SECRET)")
+            return []
+        url = (FEISHU_DOMAIN or "https://open.feishu.cn").rstrip("/") + "/open-apis/search/v2/doc_wiki/search"
+        payload = {"query": query, "page_size": min(max(1, page_size), 20)}
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"}
+        r = requests.post(url, json=payload, headers=headers, timeout=30)
+        body = r.json() if r.text else {}
+        if r.status_code != 200 or body.get("code") != 0:
+            logger.warning(
+                "search_doc_wiki API failed: query=%r status=%s body=%s",
+                query,
+                r.status_code,
+                (r.text or "")[:800],
+            )
+            return []
+        data = body.get("data") or {}
+        units = data.get("res_units") or []
+        total = data.get("total")
+        has_more = data.get("has_more")
+        logger.info(
+            "search_doc_wiki response: query=%r total=%s has_more=%s res_units_len=%s",
+            query,
+            total,
+            has_more,
+            len(units),
+        )
+        if not units:
+            logger.info("search_doc_wiki: no res_units (total=%s), query=%r", total, query)
+        out = []
+        for u in units:
+            title = (u.get("title_highlighted") or "").strip() or "(无标题)"
+            summary = (u.get("summary_highlighted") or "").strip() or ""
+            meta = u.get("result_meta") or {}
+            url_val = (meta.get("url") or "").strip() or None
+            out.append({"title": title, "summary": summary, "url": url_val})
+        return out
+    except Exception as e:
+        logger.exception("search_doc_wiki error: %s", e)
+        return []
 
 
 def create_lark_document(title: str, folder_token: str = "") -> tuple[str | None, str | None]:

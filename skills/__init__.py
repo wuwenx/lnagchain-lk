@@ -66,8 +66,10 @@ def _register_builtin_skills() -> None:
     from skills.jks import jks_skill
     from skills.new_doc import new_doc_skill
     from skills.rank import rank_skill
+    from skills.search_doc import search_doc_skill
 
     register(help_skill)
+    register(search_doc_skill)
     register(btc_skill)
     register(rank_skill)
     register(fetch_skill)

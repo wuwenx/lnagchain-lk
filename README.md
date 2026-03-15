@@ -15,6 +15,7 @@
 - **交易所资金费率**：通过 **ccxt** 请求交易所 API，提供 `get_funding_rate` 工具（LangChain Tool）及 `/资金费率` skill；**默认对话已接入 Agent**，自然语言问「Binance 今日 BTC 资金费率是多少？」等会由 Agent 自动调工具并整理回复；**资金费率结果支持飞书卡片展示**（标题 + 各交易所费率块 + 下一结算时间）
 - **多交易所流动性深度对比**：Agent 工具 `get_liquidity_depth_multi_tool`，一次传入多所（如 "okx,binance"）与标的（如 ETH），按**多档**（默认 12 档：0.01%～1%）返回深度（USDT），拿到多少订单簿数据就按多少档汇总分析
 - **多群流水线**：在 A 群 @ 机器人发消息时，自动走「A=需求分析 → B=方案生成 → C=总结输出」三阶段，结果依次发到 A、B、C 群，最终总结在 C 群输出（需在 `.env` 配置三个群的 `FEISHU_PIPELINE_STAGE_*_CHAT_ID`）
+- **文档/知识库搜索**：发 `/search 关键词` 或「搜索 xxx」时，调用飞书开放平台 [search v2 doc_wiki](https://open.larksuite.com/document/uAjLw4CM/ukTMukTMukTM/search-v2/doc_wiki/search) 搜索企业内文档与知识库，再由大模型总结汇总；需应用具备文档与知识库读权限
 - **可扩展**：可在此项目上增加 RAG、Agent+Tools 等
 
 ## 环境要求
