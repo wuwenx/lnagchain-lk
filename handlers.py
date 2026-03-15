@@ -17,10 +17,11 @@ from config import (
     FEISHU_PIPELINE_STAGE_A_CHAT_ID,
     FEISHU_PIPELINE_STAGE_B_CHAT_ID,
     FEISHU_PIPELINE_STAGE_C_CHAT_ID,
+    FEISHU_REACTION_EMOJI,
 )
 from feishu_doc import extract_document_ids, extract_wiki_node_tokens, fetch_documents_content
 from langgraph_app import run as graph_run
-from lark_client import send_text_message, send_card_message, update_text_message
+from lark_client import send_text_message, send_card_message, update_text_message, add_message_reaction
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,15 @@ def _get_message(data):
     if hasattr(data, "event") and data.event is not None and getattr(data.event, "message", None) is not None:
         return data.event.message
     return None
+
+
+def _get_message_id(message) -> str | None:
+    """从事件中的 message 取出 message_id，兼容 dict 与对象。"""
+    if not message:
+        return None
+    if isinstance(message, dict):
+        return message.get("message_id") or message.get("id")
+    return getattr(message, "message_id", None) or getattr(message, "id", None)
 
 
 def _mentions_include_our_bot(message) -> bool:
@@ -233,6 +243,17 @@ def handle_message(data) -> None:
         if not text:
             logger.info("message is only @ mention, skip")
             return
+        # 在用户消息上添加「处理中」表情回应（如 🔥），需应用有 im:message:reaction 权限
+        reaction_emoji = (FEISHU_REACTION_EMOJI or "").strip()
+        if reaction_emoji:
+            msg_id = _get_message_id(message)
+            if msg_id:
+                ok = add_message_reaction(msg_id, reaction_emoji)
+                if not ok:
+                    logger.debug("add_message_reaction failed (message_id=%s), check im:message.reaction permission", msg_id[:20] + "...")
+            else:
+                _keys = list(message.keys()) if isinstance(message, dict) else [k for k in dir(message) if not k.startswith("_")]
+                logger.debug("no message_id in event message, skip reaction (message keys: %s)", _keys[:20])
         # 若消息中含飞书文档或知识库链接，拉取正文作为上下文
         doc_ids = extract_document_ids(text)
         wiki_tokens = extract_wiki_node_tokens(text)
@@ -297,6 +318,7 @@ def build_event_handler(encrypt_key: str, verification_token: str):
         .register_p2_im_message_reaction_created_v1(_noop)
         .register_p2_im_message_reaction_deleted_v1(_noop)
         .register_p2_im_chat_updated_v1(_noop)
+        .register_p2_im_chat_access_event_bot_p2p_chat_entered_v1(_noop)
         .register_p2_vc_meeting_all_meeting_started_v1(_noop)
         .build()
     )

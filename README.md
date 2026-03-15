@@ -10,6 +10,7 @@
 - **网页抓取**：消息中同时包含「获取」或「抓取」且包含一个网址时，用 **Playwright** 抓取页面正文，再由大模型总结/分析并回复到 Lark（需安装 `playwright` 并执行 `playwright install chromium`）
 - **直接创建 Lark 文档**：说「新建 lark 文档」「帮我新建一个 xxx 文档」或发 `/新建文档` 时，机器人会**直接调用飞书 API 创建云文档**并返回链接（需应用有云文档创建权限；可选配置 `FEISHU_DOC_BASE_URL` 以返回可点击链接）
 - **群聊**：群内仅在被 @ 时回复（可配置 `FEISHU_GROUP_ACCESS`）
+- **处理中表情**：确定会回复时，在用户该条消息上自动添加表情回应（默认 SMILE😊，可配置 `FEISHU_REACTION_EMOJI`，须为飞书支持的 emoji_type）；需应用具备「发送、删除消息表情回复」权限（im:message.reactions:write_only）
 - **流式回复**：默认对话路径下，先发一条「思考中…」占位消息，再边生成边调用飞书「更新消息」接口更新同一条消息（约 0.4 秒节流，避免限频）
 - **交易所资金费率**：通过 **ccxt** 请求交易所 API，提供 `get_funding_rate` 工具（LangChain Tool）及 `/资金费率` skill；**默认对话已接入 Agent**，自然语言问「Binance 今日 BTC 资金费率是多少？」等会由 Agent 自动调工具并整理回复；**资金费率结果支持飞书卡片展示**（标题 + 各交易所费率块 + 下一结算时间）
 - **多交易所流动性深度对比**：Agent 工具 `get_liquidity_depth_multi_tool`，一次传入多所（如 "okx,binance"）与标的（如 ETH），按**多档**（默认 12 档：0.01%～1%）返回深度（USDT），拿到多少订单簿数据就按多少档汇总分析

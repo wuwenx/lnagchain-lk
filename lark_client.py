@@ -8,6 +8,9 @@ import logging
 import lark_oapi as lark
 from lark_oapi.api.im.v1.model.create_message_request import CreateMessageRequest
 from lark_oapi.api.im.v1.model.create_message_request_body import CreateMessageRequestBody
+from lark_oapi.api.im.v1.model.create_message_reaction_request import CreateMessageReactionRequest
+from lark_oapi.api.im.v1.model.create_message_reaction_request_body import CreateMessageReactionRequestBody
+from lark_oapi.api.im.v1.model.emoji import Emoji
 from lark_oapi.api.im.v1.model.update_message_request import UpdateMessageRequest
 from lark_oapi.api.im.v1.model.update_message_request_body import UpdateMessageRequestBody
 from lark_oapi.api.docx.v1.model.create_document_request import CreateDocumentRequest
@@ -72,6 +75,34 @@ def send_text_message(chat_id: str, text: str) -> str | None:
     except Exception as e:
         logger.exception("send_text_message error: %s", e)
         return None
+
+
+def add_message_reaction(message_id: str, emoji_type: str = "SMILE") -> bool:
+    """
+    给指定消息添加表情回应（如「正在处理」的提示）。
+    :param message_id: 消息 ID（事件中的 message.message_id）
+    :param emoji_type: 飞书 emoji 类型，须为接口支持的枚举，如 SMILE、THUMBSUP、LAUGH、OK（文档示例用 SMILE）
+    :return: 是否添加成功
+    """
+    if not message_id or not message_id.strip():
+        return False
+    try:
+        emoji = Emoji.builder().emoji_type(emoji_type.strip()).build()
+        body = CreateMessageReactionRequestBody.builder().reaction_type(emoji).build()
+        req = (
+            CreateMessageReactionRequest.builder()
+            .message_id(message_id.strip())
+            .request_body(body)
+            .build()
+        )
+        resp = get_client().im.v1.message_reaction.create(req)
+        if not resp.success():
+            logger.warning("add_message_reaction failed: %s", resp.raw.content)
+            return False
+        return True
+    except Exception as e:
+        logger.exception("add_message_reaction error: %s", e)
+        return False
 
 
 def update_text_message(message_id: str, text: str) -> bool:
