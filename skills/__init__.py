@@ -62,10 +62,12 @@ def _register_builtin_skills() -> None:
     from skills.btc import btc_skill
     from skills.fetch import fetch_skill
     from skills.funding_rate import funding_rate_skill
+    from skills.help import help_skill
     from skills.jks import jks_skill
     from skills.new_doc import new_doc_skill
     from skills.rank import rank_skill
 
+    register(help_skill)
     register(btc_skill)
     register(rank_skill)
     register(fetch_skill)

@@ -1,6 +1,6 @@
 """
-JKS（Jenkins）发板 skill：通过飞书指令触发指定 Jenkins 任务构建。
-触发：/发板、发板、/jks、jks
+JKS（Jenkins）发版 skill：通过飞书指令触发指定 Jenkins 任务构建。
+触发：/发版、发版、/jks、jks
 配置：config 中的 JKS_URL、JKS_USERNAME、JKS_TOKEN、JKS_JOB_NAME（.env）
 参考前端逻辑：Crumb、参数化构建 buildWithParameters、develop 分支默认参数。
 """
@@ -98,17 +98,17 @@ def _trigger_build() -> tuple[bool, str]:
         except Exception:
             pass
         logger.warning("jks build HTTP error: %s %s %s", e.code, e.reason, err_body)
-        return False, f"发板失败：HTTP {e.code} {e.reason}"
+        return False, f"发版失败：HTTP {e.code} {e.reason}"
     except Exception as e:
         logger.exception("jks trigger error")
-        return False, f"发板失败：{e}"
+        return False, f"发版失败：{e}"
 
 
 class JksSkill:
     id = "jks"
-    name = "发板"
+    name = "发版"
     description = "触发 Jenkins 构建（JKS）"
-    trigger_commands = ["/发板", "发板", "/jks", "jks"]
+    trigger_commands = ["/发版", "发版", "/jks", "jks"]
 
     def run(
         self,
