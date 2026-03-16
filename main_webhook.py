@@ -17,6 +17,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from config import (
     FEISHU_ENCRYPT_KEY,
+    FEISHU_NEEDLE_ALERT_CHAT_ID,
     FEISHU_TOOBIT_24H_CHAT_ID,
     FEISHU_VERIFICATION_TOKEN,
     WEBHOOK_HOST,
@@ -26,6 +27,7 @@ from config import (
 )
 from gitlab_webhook import handle_gitlab_webhook
 from handlers import build_event_handler
+from tasks.needle_scan import run_needle_scan_push
 from tasks.toobit_24h import run_toobit_24h_push
 
 logging.basicConfig(
@@ -41,22 +43,32 @@ _scheduler: BackgroundScheduler | None = None
 async def _lifespan(app: FastAPI):
     """应用生命周期：启动时启动定时任务，关闭时停止。"""
     global _scheduler
-    if (FEISHU_TOOBIT_24H_CHAT_ID or "").strip():
+    has_toobit = bool((FEISHU_TOOBIT_24H_CHAT_ID or "").strip())
+    has_needle = bool((FEISHU_NEEDLE_ALERT_CHAT_ID or "").strip())
+    if has_toobit or has_needle:
         _scheduler = BackgroundScheduler()
-        _scheduler.add_job(run_toobit_24h_push, "interval", minutes=5, id="toobit_24h")
+        if has_toobit:
+            _scheduler.add_job(run_toobit_24h_push, "interval", minutes=5, id="toobit_24h")
+            logger.info("Toobit 24h scheduler (every 5 min -> %s)", (FEISHU_TOOBIT_24H_CHAT_ID or "")[:20] + "...")
+            try:
+                run_toobit_24h_push()
+            except Exception as e:
+                logger.exception("Toobit 24h first run error: %s", e)
+        if has_needle:
+            _scheduler.add_job(run_needle_scan_push, "interval", minutes=5, id="needle_scan")
+            logger.info("Needle scan scheduler (every 5 min -> %s)", (FEISHU_NEEDLE_ALERT_CHAT_ID or "")[:20] + "...")
+            try:
+                run_needle_scan_push()
+            except Exception as e:
+                logger.exception("Needle scan first run error: %s", e)
         _scheduler.start()
-        logger.info("Toobit 24h scheduler started (every 5 min -> %s)", (FEISHU_TOOBIT_24H_CHAT_ID or "")[:20] + "...")
-        try:
-            run_toobit_24h_push()
-        except Exception as e:
-            logger.exception("Toobit 24h first run error: %s", e)
     else:
-        logger.debug("FEISHU_TOOBIT_24H_CHAT_ID not set, Toobit 24h scheduler disabled")
+        logger.debug("No FEISHU_TOOBIT_24H_CHAT_ID or FEISHU_NEEDLE_ALERT_CHAT_ID, schedulers disabled")
     yield
     if _scheduler:
         _scheduler.shutdown(wait=False)
         _scheduler = None
-        logger.info("Toobit 24h scheduler stopped")
+        logger.info("Scheduler stopped")
 
 
 app = FastAPI(title="LangChain + Lark Webhook", lifespan=_lifespan)

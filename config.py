@@ -64,6 +64,9 @@ GITLAB_PUSH_ROLLBACK_TAG = _str("GITLAB_PUSH_ROLLBACK_TAG", "PROD-20260205-maint
 # Toobit 24h 成交量 Top20 定时推送：接收卡片的飞书群 chat_id，不填则不定时推送 oc_70f3a7c325ba36ca6b22282e346ecfce
 FEISHU_TOOBIT_24H_CHAT_ID = _str("FEISHU_TOOBIT_24H_CHAT_ID", "")
 
+# 插针监听：检测到插针后推送的飞书群 chat_id，不填则不推送
+FEISHU_NEEDLE_ALERT_CHAT_ID = _str("FEISHU_NEEDLE_ALERT_CHAT_ID", "oc_1fdd521a8a86fc0413ca8ef20364e3f2")
+
 # 收到消息并确定会回复时，在用户该条消息上添加的表情回应。须为飞书支持的 emoji_type，如 SMILE、THUMBSUP、LAUGH。不填或空则不添加
 FEISHU_REACTION_EMOJI = _str("FEISHU_REACTION_EMOJI", "SMILE")
 
