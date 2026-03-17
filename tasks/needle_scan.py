@@ -20,9 +20,12 @@ NEEDLE_WICK_VS_BODY_MIN = 2.0
 # 最小 K 线幅度（避免极低价币噪音），占 close 的比例
 MIN_RANGE_PCT = 0.001
 # 插针推送门槛：整根 K 线振幅至少为该比例才推送（避免 0.9% 这种肉眼难见的“数学插针”）
-MIN_RANGE_PCT_FOR_ALERT = 0.01
+MIN_RANGE_PCT_FOR_ALERT = 0.1
 # 实体占整根 K 线比例下限：实体过小（如 O=H=C）视为噪音，不推送
 MIN_BODY_RATIO = 0.02
+# Toobit 合约 24hr ticker 仅支持 realtimeInterval: 24h / 1d / 1d+8，不支持 5m；传 5m 会被忽略仍返回 24h
+REALTIME_INTERVAL = "24h"
+TOOBIT_TICKER_INTERVALS = ("24h", "1d", "1d+8")  # API 仅支持这三种，用于校验与日志
 
 
 def _to_str(v: Any) -> str:
@@ -132,7 +135,7 @@ def _build_needle_card(needles: list[dict]) -> dict:
             "tag": "div",
             "text": {
                 "tag": "lark_md",
-                "content": f"基于 **Toobit 永续合约 24h** 一根 K 线影线比例判断（上/下影线占比 ≥ {NEEDLE_WICK_RATIO_MIN * 100:.0f}% 且影线 ≥ {NEEDLE_WICK_VS_BODY_MIN:.1f}×实体）",
+                "content": f"基于 **Toobit 永续合约** 一根 K 线影线比例判断（**数据周期: {REALTIME_INTERVAL}**；上/下影线占比 ≥ {NEEDLE_WICK_RATIO_MIN * 100:.0f}% 且影线 ≥ {NEEDLE_WICK_VS_BODY_MIN:.1f}×实体）",
             },
         },
         {"tag": "hr"},
@@ -141,9 +144,19 @@ def _build_needle_card(needles: list[dict]) -> dict:
         s = n.get("s", "")
         nt = n.get("needle_type", "")
         o, h, lv, c = n.get("o", ""), n.get("h", ""), n.get("l", ""), n.get("c", "")
-        pcp = n.get("pcp", "")
+        pcp_raw = n.get("pcp", "")
+        try:
+            v = float(pcp_raw)
+            if v == 0:
+                pcp_display = "0"
+            elif -1 < v < 1:
+                pcp_display = f"{v * 100:.2f}"
+            else:
+                pcp_display = f"{v:.2f}"
+        except (TypeError, ValueError):
+            pcp_display = pcp_raw
         ur, lr = n.get("upper_ratio"), n.get("lower_ratio")
-        line = f"**{s}** {nt} · O:{o} H:{h} L:{lv} C:{c} · 24h涨跌:{pcp}% · 上影比:{ur} 下影比:{lr}"
+        line = f"**{s}** {nt} · O:{o} H:{h} L:{lv} C:{c} · 涨跌:{pcp_display}% · 上影比:{ur} 下影比:{lr}"
         elements.append({
             "tag": "div",
             "text": {"tag": "lark_md", "content": line},
@@ -158,7 +171,7 @@ def _build_needle_card(needles: list[dict]) -> dict:
         "tag": "div",
         "text": {
             "tag": "plain_text",
-            "content": f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')} · Toobit 永续合约 24h 全市场扫描",
+            "content": f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')} · Toobit 永续合约 · 数据周期: {REALTIME_INTERVAL} 全市场扫描",
             "lines": 1,
         },
     })
@@ -170,6 +183,29 @@ def _build_needle_card(needles: list[dict]) -> dict:
         },
         "elements": elements,
     }
+
+
+def _log_ticker_sample(tickers: dict[str, Any], top_n: int = 5) -> None:
+    """打印前 top_n 条 ticker 便于核对数据。"""
+    items = list(tickers.items())[:top_n]
+    for i, (sym, t) in enumerate(items, 1):
+        if not t:
+            logger.info("Needle scan ticker[%d] %s: (empty)", i, sym)
+            continue
+        o = t.get("open"), t.get("high"), t.get("low"), t.get("close")
+        pct = t.get("percentage")
+        ts = t.get("timestamp")
+        logger.info(
+            "Needle scan ticker[%d] %s o=%s h=%s l=%s c=%s pct=%s ts=%s",
+            i,
+            sym,
+            o[0],
+            o[1],
+            o[2],
+            o[3],
+            pct,
+            ts,
+        )
 
 
 def _get_toobit_swap():
@@ -188,7 +224,9 @@ def fetch_needle_results() -> list[dict]:
     """
     ex = _get_toobit_swap()
     ex.load_markets()
-    tickers = ex.fetch_tickers()
+    tickers = ex.fetch_tickers(params={"realtimeInterval": REALTIME_INTERVAL})
+    logger.info("fetch_needle_results: realtimeInterval=%s count=%d", REALTIME_INTERVAL, len(tickers))
+    _log_ticker_sample(tickers, top_n=5)
     needles = _detect_needles(tickers)
     return [
         {
@@ -216,9 +254,21 @@ def run_needle_scan_push() -> None:
         logger.debug("FEISHU_NEEDLE_ALERT_CHAT_ID not set, skip needle push")
         return
     try:
+        if REALTIME_INTERVAL not in TOOBIT_TICKER_INTERVALS:
+            logger.warning(
+                "Needle scan: realtimeInterval=%s 不被 Toobit 支持（仅支持 %s），接口会忽略并返回 24h 数据",
+                REALTIME_INTERVAL,
+                ", ".join(TOOBIT_TICKER_INTERVALS),
+            )
         ex = _get_toobit_swap()
         ex.load_markets()
-        tickers = ex.fetch_tickers()
+        tickers = ex.fetch_tickers(params={"realtimeInterval": REALTIME_INTERVAL})
+        logger.info(
+            "Needle scan: fetch_tickers realtimeInterval=%s count=%d（实际数据周期以 API 为准，仅 24h/1d/1d+8 有效）",
+            REALTIME_INTERVAL,
+            len(tickers),
+        )
+        _log_ticker_sample(tickers, top_n=5)
         full_needles = _detect_needles(tickers)
         if not full_needles:
             logger.info("Needle scan: no needles detected this run, sending heartbeat")
@@ -226,6 +276,36 @@ def run_needle_scan_push() -> None:
             send_text_message(chat_id, msg)
             return
         logger.info("Needle scan: detected %d needles, pushing to %s", len(full_needles), chat_id[:20])
+        for i, n in enumerate(full_needles[:5], 1):
+            logger.info(
+                "Needle scan needle[%d] %s %s o=%s h=%s l=%s c=%s upper_ratio=%s lower_ratio=%s",
+                i,
+                n.get("s"),
+                n.get("needle_type"),
+                n.get("o"),
+                n.get("h"),
+                n.get("l"),
+                n.get("c"),
+                n.get("upper_ratio"),
+                n.get("lower_ratio"),
+            )
+            sym = n.get("s")
+            raw = tickers.get(sym) if sym else None
+            if raw is not None:
+                logger.info(
+                    "Needle scan ccxt ticker[%d] %s: open=%s high=%s low=%s close=%s percentage=%s change=%s timestamp=%s baseVolume=%s quoteVolume=%s",
+                    i,
+                    sym,
+                    raw.get("open"),
+                    raw.get("high"),
+                    raw.get("low"),
+                    raw.get("close"),
+                    raw.get("percentage"),
+                    raw.get("change"),
+                    raw.get("timestamp"),
+                    raw.get("baseVolume"),
+                    raw.get("quoteVolume"),
+                )
         card = _build_needle_card(full_needles)
         mid = send_card_message(chat_id, card)
         if mid:
