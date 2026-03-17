@@ -1,7 +1,6 @@
 """
 Popfun 日志平台：Playwright 登录 → 打开 Discover 页 → 抓取 error 相关日志 → 推送到飞书。
 配置：POPFUN_LOG_BASE_URL / POPFUN_LOG_USERNAME / POPFUN_LOG_PASSWORD（.env）/ FEISHU_POPFUN_LOG_CHAT_ID
-抓取结果会写入 tasks/popfun_log_capture.txt 便于核对。
 
 本文件为原 Playwright 实现备份；CDP 版见 popfun_log_cdp.py。
 """
@@ -290,15 +289,6 @@ def _login_and_fetch_error_logs(headless: bool = True) -> list[dict]:
                     if ("-error.log" in ln or ERROR_PATTERN.search(ln)) and len(ln) > 15:
                         rows.append({"message": ln[:500], "path": "", "host": "", "ts": ""})
                 rows = rows[:50]
-
-            debug_lines.append(f"\n--- 最终 ---\n使用路径: {used_path}\n推送条数: {len(rows)}")
-            capture_path = Path(__file__).resolve().parent / "popfun_log_capture.txt"
-            try:
-                with open(capture_path, "w", encoding="utf-8") as f:
-                    f.write("\n".join(debug_lines))
-                logger.info("popfun_log: 抓取数据已写入 %s", capture_path)
-            except Exception as e:
-                logger.warning("popfun_log: 写入 capture 文件失败: %s", e)
 
         finally:
             browser.close()

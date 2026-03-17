@@ -1,7 +1,6 @@
 """
 Popfun 日志平台：Playwright 登录 → 打开 Discover 页 → 抓取 error 相关日志 → 推送到飞书。
 配置：POPFUN_LOG_BASE_URL / POPFUN_LOG_USERNAME / POPFUN_LOG_PASSWORD（.env）/ FEISHU_POPFUN_LOG_CHAT_ID
-抓取结果会写入 tasks/popfun_log_capture.txt 便于核对。
 """
 import logging
 import re
@@ -343,25 +342,22 @@ def _login_and_fetch_error_logs(headless: bool = True) -> list[dict]:
                         rows.append({"message": ln[:500], "path": "", "host": "", "ts": ""})
                 rows = rows[:50]
 
-            debug_lines.append(f"\n--- 最终 ---\n使用路径: {used_path}\n推送条数: {len(rows)}")
-            capture_path = Path(__file__).resolve().parent / "popfun_log_capture.txt"
-            try:
-                with open(capture_path, "w", encoding="utf-8") as f:
-                    f.write("\n".join(debug_lines))
-                logger.info("popfun_log: 抓取数据已写入 %s", capture_path)
-            except Exception as e:
-                logger.warning("popfun_log: 写入 capture 文件失败: %s", e)
-
         finally:
             browser.close()
 
     return rows
 
 
-def _analyze_error_logs_with_llm(rows: list[dict], max_rows: int = 200, max_chars: int = 55000) -> str:
-    """将 error 日志交给大模型做全面分析，返回分析报告文本。未配置 API 或失败时返回空字符串。"""
+def _analyze_error_logs_with_llm(rows: list[dict], max_rows: int | None = None, max_chars: int | None = None) -> str:
+    """将 error 日志交给大模型做全面分析，返回分析报告文本。未配置 API 或失败时返回空字符串。
+    演示阶段：max_rows/max_chars 为 None 时使用全量数据、不限制输出字符。"""
     if not rows or not OPENAI_API_KEY:
         return ""
+    # 演示阶段：不限制条数与字符，全量送入模型分析
+    if max_rows is None:
+        max_rows = len(rows)
+    if max_chars is None:
+        max_chars = 10 * 1024 * 1024  # 10MB 上限，等效不截断
     lines: list[str] = []
     total_chars = 0
     for i, r in enumerate(rows[:max_rows], 1):
@@ -377,9 +373,13 @@ def _analyze_error_logs_with_llm(rows: list[dict], max_rows: int = 200, max_char
     log_sample = "\n".join(lines)
     total = len(rows)
     sample_n = len(lines)
-    prompt = f"""你是一名运维/后端专家。下面是一批来自 Popfun 日志平台近 15 分钟的 error 日志（每条包含时间、主机、路径、消息）。**总条数 {total} 条**，因篇幅限制这里只提供**前 {sample_n} 条**作为分析样本（约 {100 * sample_n // max(total, 1)}%），分析时请说明「基于前 {sample_n} 条样本（共 {total} 条）」。
+    if sample_n >= total:
+        data_desc = f"**全量共 {total} 条**，已全部提供，请基于全量数据做分析，输出时说明「基于全量 {total} 条」即可。"
+    else:
+        data_desc = f"**总条数 {total} 条**，这里提供前 {sample_n} 条作为样本（约 {100 * sample_n // max(total, 1)}%），分析时请说明「基于前 {sample_n} 条样本（共 {total} 条）」."
+    prompt = f"""你是一名运维/后端专家。下面是一批来自 Popfun 日志平台近 15 分钟的 error 日志（每条包含时间、主机、路径、消息）。{data_desc}
 
-请做**全面 error 日志分析**，按以下结构用中文输出（无需代码块、无需重复原始日志）：
+请做**全面 error 日志分析**，按以下结构用中文输出（无需代码块、无需重复原始日志，可充分展开、不限制字数）：
 
 1. **分类统计**：按错误类型、模块或路径归纳条数与占比（如：某类错误 N 条、占比 X%）。
 2. **高频错误**：出现次数最多或最典型的几条，写出典型 message 摘要。
@@ -416,10 +416,10 @@ def _build_log_card(rows: list[dict], analysis: str = "") -> dict:
     })
     elements.append({"tag": "hr"})
     if analysis:
-        analysis_trim = analysis[:8000].rstrip() + ("..." if len(analysis) > 8000 else "")
+        # 演示阶段：不截断，展示完整 AI 分析（飞书卡片单条有约 30KB 上限，超长时需拆多块或后端需再处理）
         elements.append({
             "tag": "div",
-            "text": {"tag": "lark_md", "content": f"**🤖 AI 分析**\n{analysis_trim}", "lines": 50},
+            "text": {"tag": "lark_md", "content": f"**🤖 AI 分析**\n{analysis}", "lines": 100},
         })
     else:
         elements.append({
