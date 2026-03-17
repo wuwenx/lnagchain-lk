@@ -464,37 +464,46 @@ def _get_tenant_access_token() -> str | None:
         return None
 
 
-def search_doc_wiki(query: str, page_size: int = 10) -> list[dict]:
+def search_doc_wiki(query: str, page_size: int = 10) -> tuple[list[dict], str | None]:
     """
     调用飞书开放平台「搜索文档与知识库」接口（search v2 doc_wiki/search），
     返回匹配的文档/知识库条目列表，每项含 title_highlighted、summary_highlighted、url（若有）。
-    需应用具备 docx:document 与 wiki 相关读权限。使用 tenant_access_token 直连接口，避免 SDK 鉴权问题。
+    需应用具备文档与知识库的搜索/读权限。使用 tenant_access_token 直连接口。
     :param query: 搜索关键词
     :param page_size: 返回条数上限，默认 10
-    :return: [{"title": str, "summary": str, "url": str | None}, ...]，失败或无权时返回 []
+    :return: (items, error_message)。成功时 error_message 为 None；失败时 items 为空且 error_message 为简短错误说明（便于前端区分「接口报错」与「无结果」）。
     """
     if not query or not query.strip():
-        return []
+        return ([], None)
     query = query.strip()
     logger.info("search_doc_wiki request: query=%r page_size=%s", query, page_size)
     try:
         token = _get_tenant_access_token()
         if not token:
             logger.warning("search_doc_wiki: no tenant_access_token (check FEISHU_APP_ID/FEISHU_APP_SECRET)")
-            return []
+            return ([], "未获取到应用凭证（请检查 FEISHU_APP_ID / FEISHU_APP_SECRET）")
         url = (FEISHU_DOMAIN or "https://open.feishu.cn").rstrip("/") + "/open-apis/search/v2/doc_wiki/search"
         payload = {"query": query, "page_size": min(max(1, page_size), 20)}
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"}
         r = requests.post(url, json=payload, headers=headers, timeout=30)
         body = r.json() if r.text else {}
         if r.status_code != 200 or body.get("code") != 0:
+            code = body.get("code")
+            msg = body.get("msg") or r.text or ""
             logger.warning(
-                "search_doc_wiki API failed: query=%r status=%s body=%s",
+                "search_doc_wiki API failed: query=%r status=%s code=%s msg=%s body=%s",
                 query,
                 r.status_code,
-                (r.text or "")[:800],
+                code,
+                msg,
+                (r.text or "")[:500],
             )
-            return []
+            err = f"HTTP {r.status_code}"
+            if code is not None:
+                err += f", code={code}"
+            if isinstance(msg, str) and msg.strip():
+                err += f", {msg.strip()[:200]}"
+            return ([], err)
         data = body.get("data") or {}
         units = data.get("res_units") or []
         total = data.get("total")
@@ -515,10 +524,10 @@ def search_doc_wiki(query: str, page_size: int = 10) -> list[dict]:
             meta = u.get("result_meta") or {}
             url_val = (meta.get("url") or "").strip() or None
             out.append({"title": title, "summary": summary, "url": url_val})
-        return out
+        return (out, None)
     except Exception as e:
         logger.exception("search_doc_wiki error: %s", e)
-        return []
+        return ([], str(e)[:300])
 
 
 def create_lark_document(title: str, folder_token: str = "") -> tuple[str | None, str | None]:

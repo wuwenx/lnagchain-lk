@@ -67,6 +67,33 @@ FEISHU_TOOBIT_24H_CHAT_ID = _str("FEISHU_TOOBIT_24H_CHAT_ID", "")
 # 插针监听：检测到插针后推送的飞书群 chat_id，不填则不推送
 FEISHU_NEEDLE_ALERT_CHAT_ID = _str("FEISHU_NEEDLE_ALERT_CHAT_ID", "oc_1fdd521a8a86fc0413ca8ef20364e3f2")
 
+# MEXC 下架公告定时推送：接收卡片的飞书群 chat_id，不填则不定时推送
+FEISHU_MEXC_DELISTINGS_CHAT_ID = _str("FEISHU_MEXC_DELISTINGS_CHAT_ID", "oc_a3df7d8f7b728d12c7e6a4af98fd5eae")
+# 每次抓取的页数（变量，可在 .env 用 MEXC_DELISTINGS_PAGES=3 覆盖）
+try:
+    _mexc_pages = int(os.environ.get("MEXC_DELISTINGS_PAGES", "2") or "2")
+except (TypeError, ValueError):
+    _mexc_pages = 2
+MEXC_DELISTINGS_PAGES = max(1, min(10, _mexc_pages))
+
+# Binance 公告定时推送：接收卡片的飞书群 chat_id（默认与 MEXC 下架同一群）
+FEISHU_BINANCE_ANNOUNCEMENTS_CHAT_ID = _str("FEISHU_BINANCE_ANNOUNCEMENTS_CHAT_ID", "oc_a3df7d8f7b728d12c7e6a4af98fd5eae")
+# 每次抓取的页数，可在 .env 用 BINANCE_ANNOUNCEMENTS_PAGES=3 覆盖
+try:
+    _bn_pages = int(os.environ.get("BINANCE_ANNOUNCEMENTS_PAGES", "2") or "2")
+except (TypeError, ValueError):
+    _bn_pages = 2
+BINANCE_ANNOUNCEMENTS_PAGES = max(1, min(10, _bn_pages))
+
+# OKX 公告定时推送：上币 + 下币，接收卡片的飞书群 chat_id
+FEISHU_OKX_ANNOUNCEMENTS_CHAT_ID = _str("FEISHU_OKX_ANNOUNCEMENTS_CHAT_ID", "oc_a3df7d8f7b728d12c7e6a4af98fd5eae")
+# 上币/下币各抓取的页数
+try:
+    _okx_pages = int(os.environ.get("OKX_ANNOUNCEMENTS_PAGES", "2") or "2")
+except (TypeError, ValueError):
+    _okx_pages = 2
+OKX_ANNOUNCEMENTS_PAGES = max(1, min(5, _okx_pages))
+
 # 收到消息并确定会回复时，在用户该条消息上添加的表情回应。须为飞书支持的 emoji_type，如 SMILE、THUMBSUP、LAUGH。不填或空则不添加
 FEISHU_REACTION_EMOJI = _str("FEISHU_REACTION_EMOJI", "SMILE")
 

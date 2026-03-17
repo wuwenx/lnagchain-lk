@@ -44,13 +44,22 @@ def run_search_doc(
     query = (user_message or "").strip()
     if not query:
         return "请提供搜索关键词，例如：/search 产品需求"
-    items = search_doc_wiki(query, page_size=page_size)
-    if not items:
-        logger.info(
-            "search_doc skill: search_doc_wiki returned 0 items for query=%r (see lark_client logs for API status/body)",
-            query,
+    items, api_error = search_doc_wiki(query, page_size=page_size)
+    if api_error:
+        logger.info("search_doc skill: search_doc_wiki API error for query=%r: %s", query, api_error)
+        return (
+            f"文档/知识库搜索**接口调用失败**：{api_error}\n\n"
+            "请按下列项排查：\n"
+            "1. **飞书开放平台** → 应用 → **权限管理**：为应用开启「搜索」或「云文档/知识库」相关权限（如：查看云空间文件、查看文档、查看知识库等），并让管理员重新审批/发布。\n"
+            "2. **国际版 Lark**：在 Developer Console → 应用 → **Permissions & Scopes** 中勾选 docx、wiki 相关只读/搜索权限并重新发布。\n"
+            "3. 查看服务端日志中的 `search_doc_wiki API failed` 的 code/msg，对照[飞书错误码](https://open.feishu.cn/document/ukTMukTMukTM/ugjM14COyUjL4ITN)排查。"
         )
-        return f"未找到与「{query}」相关的文档或知识库内容。请确认应用已开通文档/知识库搜索权限（如 docx、wiki 只读），且该环境下接口可用。"
+    if not items:
+        logger.info("search_doc skill: search_doc_wiki returned 0 items (API 成功) for query=%r", query)
+        return (
+            f"未找到与「{query}」相关的文档或知识库内容。\n\n"
+            "可能原因：企业内暂无标题/正文匹配该关键词的文档或知识库；或应用暂无权限搜索到这些资源（需在开放平台为应用开启文档与知识库的读/搜索权限）。可尝试其他关键词或确认权限后重试。"
+        )
     results_text = _format_search_results(items)
     prompt = (
         "以下是对企业内飞书文档与知识库的搜索结果（标题、摘要与链接）。"
