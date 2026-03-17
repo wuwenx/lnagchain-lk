@@ -139,9 +139,27 @@ def _login_and_fetch_error_logs(headless: bool = True) -> list[dict]:
                     pagination_next_sel = '[data-test-subj="pagination-button-next"]'
                     pagination_first_sel = '[data-test-subj="pagination-button-0"]'
                     max_pages = 25
-                    only_first_page = True  # 只请求一页，便于看执行过程；改回 False 可抓全部页
+                    only_first_page = False  # 抓全部页；改为 True 则只抓第 1 页
                     # 每步滚动高度（约 3 行），步长大一点滚动更快
                     scroll_step_px = 300
+                    # 先把「Rows per page」改成 500，减少分页次数
+                    try:
+                        popover_btn = page.locator("[data-test-subj='tablePaginationPopoverButton']").first
+                        if popover_btn.count() > 0:
+                            popover_btn.click()
+                            page.wait_for_timeout(500)
+                            option_500 = page.get_by_role("button", name="500 rows").or_(page.locator("button:has-text('500 rows')")).first
+                            if option_500.count() > 0:
+                                option_500.click()
+                                page.wait_for_timeout(2500)
+                                logger.info("popfun_log: 已切换为每页 500 条")
+                            else:
+                                page.keyboard.press("Escape")
+                        else:
+                            page.wait_for_timeout(300)
+                    except Exception as e:
+                        logger.debug("popfun_log: 切换每页条数失败 %s，继续按当前设置抓取", e)
+                        page.wait_for_timeout(300)
                     # 确保从第 1 页开始：点一下「1」按钮（若已在第1页则为 disabled，点击无妨）
                     try:
                         page.locator(pagination_first_sel).first.click()
@@ -391,7 +409,7 @@ def run_popfun_log_push(visible: bool = False) -> None:
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(_run)
-            rows = future.result(timeout=180)
+            rows = future.result(timeout=600)
         if not rows:
             send_text_message(
                 chat_id,
