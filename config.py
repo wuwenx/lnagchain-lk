@@ -111,6 +111,13 @@ FEISHU_PIPELINE_STAGE_A_CHAT_ID = _str("FEISHU_PIPELINE_STAGE_A_CHAT_ID", "oc_c5
 FEISHU_PIPELINE_STAGE_B_CHAT_ID = _str("FEISHU_PIPELINE_STAGE_B_CHAT_ID", "oc_84bb99852bb8fbcf145375eed1e3d784")
 FEISHU_PIPELINE_STAGE_C_CHAT_ID = _str("FEISHU_PIPELINE_STAGE_C_CHAT_ID", "oc_8b3d5e5932f49263e67d3c09612912cd")
 
+# Popfun 日志平台：抓取 Discover 的 error 日志并推送到飞书
+POPFUN_LOG_BASE_URL = _str("POPFUN_LOG_BASE_URL", "https://log.popfun.xyz").rstrip("/")
+POPFUN_LOG_USERNAME = _str("POPFUN_LOG_USERNAME", "read")
+# 密码请务必放在 .env：POPFUN_LOG_PASSWORD=xxx，不要提交到代码库
+POPFUN_LOG_PASSWORD = _str("POPFUN_LOG_PASSWORD", "")
+FEISHU_POPFUN_LOG_CHAT_ID = _str("FEISHU_POPFUN_LOG_CHAT_ID", "oc_0ef90b86531f087ef931863bb64121fd")
+
 
 def validate_config() -> list[str]:
     """校验必填配置，返回错误信息列表。"""
