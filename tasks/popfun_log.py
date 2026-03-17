@@ -348,16 +348,11 @@ def _login_and_fetch_error_logs(headless: bool = True) -> list[dict]:
     return rows
 
 
-def _analyze_error_logs_with_llm(rows: list[dict], max_rows: int | None = None, max_chars: int | None = None) -> str:
+def _analyze_error_logs_with_llm(rows: list[dict], max_rows: int = 300, max_chars: int = 200000) -> str:
     """将 error 日志交给大模型做全面分析，返回分析报告文本。未配置 API 或失败时返回空字符串。
-    演示阶段：max_rows/max_chars 为 None 时使用全量数据、不限制输出字符。"""
+    默认最多取 300 条、约 200KB 字符，避免输入过大导致模型崩溃。"""
     if not rows or not OPENAI_API_KEY:
         return ""
-    # 演示阶段：不限制条数与字符，全量送入模型分析
-    if max_rows is None:
-        max_rows = len(rows)
-    if max_chars is None:
-        max_chars = 10 * 1024 * 1024  # 10MB 上限，等效不截断
     lines: list[str] = []
     total_chars = 0
     for i, r in enumerate(rows[:max_rows], 1):
