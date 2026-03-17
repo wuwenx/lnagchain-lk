@@ -79,12 +79,12 @@ def _login_and_fetch_error_logs(headless: bool = True) -> list[dict]:
             # 2) 打开 Discover 固定地址，只抓表格内容
             logger.info("popfun_log: loading discover %s", DISCOVER_URL)
             page.goto(DISCOVER_URL, wait_until="domcontentloaded", timeout=20000)
-            # 等待数据加载：表格或“个命中”出现
+            # 等待实际要用的表格和滚动容器出现即可，避免固定长等
             try:
-                page.wait_for_selector("[data-test-subj='docTableRow'], .euiTableRow, table tbody tr, [class*='docTable']", timeout=15000)
+                page.wait_for_selector("[data-test-subj='euiDataGridBody'], .euiDataGrid__virtualized", timeout=15000)
             except Exception:
                 pass
-            page.wait_for_timeout(5000)
+            page.wait_for_timeout(500)
 
             # 3a) 若页面是 euiDataGrid（与你「查看元素」一致）：按 data-gridcell-column-id 取 @timestamp / message / log.file.path / host.name
             def _get_cell_text(row, col_id: str) -> str:
@@ -112,6 +112,7 @@ def _login_and_fetch_error_logs(headless: bool = True) -> list[dict]:
                 return {"ts": ts, "path": path, "host": host, "message": msg}
 
             def _parse_eui_row(row) -> dict | None:
+                """只保留 error 行：path 含 -error.log 或 message 含 error（满足其一即保留），否则视为非 error 丢弃。"""
                 raw = _parse_eui_row_raw(row)
                 path, msg = raw["path"], raw["message"]
                 if not path and not msg:
@@ -124,40 +125,51 @@ def _login_and_fetch_error_logs(headless: bool = True) -> list[dict]:
             try:
                 primary_sel = "[data-test-subj='euiDataGridBody'] .euiDataGridRow"
                 grid_body = page.locator("[data-test-subj='euiDataGridBody']")
+                # 实际带滚动条的是 .euiDataGrid__virtualized（overflow:auto），在其上小步 scrollTop 避免一次拉到底
+                scroll_container_sel = ".euiDataGrid__virtualized"
+                scroll_container = page.locator(scroll_container_sel).first
                 if grid_body.count() == 0:
                     debug_lines.append("euiDataGridBody 未找到")
+                elif scroll_container.count() == 0:
+                    debug_lines.append("euiDataGrid__virtualized 未找到")
                 else:
                     # 分页流程：第1页 → 当前页内下拉取数据 → 点「下一页」→ 取下一页数据 → 直到无下一页。去重 key=(ts, path, message前80字)。
                     seen_keys: set[tuple] = set()
+                    raw_total = 0  # 去重前解析到的总条数（含重复）
                     pagination_next_sel = '[data-test-subj="pagination-button-next"]'
                     pagination_first_sel = '[data-test-subj="pagination-button-0"]'
                     max_pages = 25
+                    only_first_page = True  # 只请求一页，便于看执行过程；改回 False 可抓全部页
+                    # 每步滚动高度（约 3 行），步长大一点滚动更快
+                    scroll_step_px = 300
                     # 确保从第 1 页开始：点一下「1」按钮（若已在第1页则为 disabled，点击无妨）
                     try:
                         page.locator(pagination_first_sel).first.click()
-                        page.wait_for_timeout(800)
+                        page.wait_for_timeout(300)
                     except Exception:
                         pass
                     for page_num in range(1, max_pages + 1):
-                        # 先滑动到顶部（第1页在此回顶；第2页起已在上一轮「下一页」点击后回顶）
+                        # 每页开始时：页面回顶，并把真正的滚动容器 .euiDataGrid__virtualized 的 scrollTop 置 0
+                        page.evaluate("window.scrollTo(0, 0)")
+                        page.wait_for_timeout(100)
+                        scroll_container.evaluate("el => { el.scrollTop = 0; }")
+                        page.wait_for_timeout(150)
                         grid_body.first.click()
-                        page.wait_for_timeout(300)
+                        page.wait_for_timeout(100)
                         if page_num == 1:
                             page.keyboard.press("Home")
-                            page.wait_for_timeout(350)
-                            for _ in range(8):
-                                page.keyboard.press("PageUp")
-                                page.wait_for_timeout(150)
-                            page.wait_for_timeout(500)
-                        # 再当前页内下拉/PageDown 取满当前页数据
-                        no_new_steps = 0
-                        for step in range(80):
+                            page.wait_for_timeout(80)
+                        # 当前页内：在 .euiDataGrid__virtualized 上小步增加 scrollTop，边滚边采（不触发分页）
+                        no_new_count = 0
+                        for step in range(120):
                             eui_rows = page.locator(primary_sel)
                             ne = eui_rows.count()
-                            before_step = len(seen_keys)
+                            before = len(seen_keys)
                             for i in range(ne):
                                 try:
                                     raw = _parse_eui_row_raw(eui_rows.nth(i))
+                                    if raw.get("ts") or raw.get("path") or raw.get("message"):
+                                        raw_total += 1
                                     key = (raw["ts"], raw["path"], (raw["message"] or "")[:80])
                                     if key in seen_keys:
                                         continue
@@ -167,16 +179,42 @@ def _login_and_fetch_error_logs(headless: bool = True) -> list[dict]:
                                         rows.append(p)
                                 except Exception:
                                     pass
-                            for _ in range(5):
-                                page.keyboard.press("PageDown")
-                                page.wait_for_timeout(260)
-                            if step >= 4 and len(seen_keys) == before_step:
-                                no_new_steps += 1
-                                if no_new_steps >= 3:
+                            # 小步下滚：只改 scrollTop += scroll_step_px，不拉到底
+                            scroll_container.evaluate(
+                                f"el => {{ const max = el.scrollHeight - el.clientHeight; if (max <= 0) return; el.scrollTop = Math.min(el.scrollTop + {scroll_step_px}, max); }}"
+                            )
+                            page.wait_for_timeout(400)
+                            if len(seen_keys) == before:
+                                no_new_count += 1
+                                if no_new_count >= 6:
                                     break
                             else:
-                                no_new_steps = 0
-                        logger.info("popfun_log: 第 %d 页采集结束, 累计去重 %d 行, error %d 条", page_num, len(seen_keys), len(rows))
+                                no_new_count = 0
+                            # 若已滚到底则提前结束
+                            at_bottom = scroll_container.evaluate(
+                                "el => el.scrollHeight - el.clientHeight <= el.scrollTop + 2"
+                            )
+                            if at_bottom:
+                                break
+                        # 再采一次当前屏（兜底最后一屏）
+                        eui_rows = page.locator(primary_sel)
+                        for i in range(eui_rows.count()):
+                            try:
+                                raw = _parse_eui_row_raw(eui_rows.nth(i))
+                                if raw.get("ts") or raw.get("path") or raw.get("message"):
+                                    raw_total += 1
+                                key = (raw["ts"], raw["path"], (raw["message"] or "")[:80])
+                                if key not in seen_keys:
+                                    seen_keys.add(key)
+                                    p = _parse_eui_row(eui_rows.nth(i))
+                                    if p:
+                                        rows.append(p)
+                            except Exception:
+                                pass
+                        ne = page.locator(primary_sel).count()
+                        logger.info("popfun_log: 第 %d 页采集结束, 本页可见 %d 行, 累计去重 %d 行, error %d 条", page_num, ne, len(seen_keys), len(rows))
+                        if only_first_page:
+                            break
                         # 点「下一页」；若为 button 且 disabled 说明已是最后一页
                         next_el = page.locator(pagination_next_sel).first
                         if next_el.count() == 0:
@@ -186,20 +224,17 @@ def _login_and_fetch_error_logs(headless: bool = True) -> list[dict]:
                             break
                         next_el.click()
                         page.wait_for_timeout(2500)
-                        # 分页加载后先滑动到顶部，下一轮循环再下拉采集
-                        grid_body.first.click()
-                        page.wait_for_timeout(200)
-                        page.keyboard.press("Home")
+                        # 下一页：把 .euiDataGrid__virtualized 滚回顶部
+                        scroll_container.evaluate("el => { el.scrollTop = 0; }")
                         page.wait_for_timeout(300)
-                        for _ in range(8):
-                            page.keyboard.press("PageUp")
-                            page.wait_for_timeout(150)
-                        page.wait_for_timeout(400)
-                    logger.info("popfun_log: 分页采集结束, 去重后 %d 行, error %d 条", len(seen_keys), len(rows))
+                    captured_dedup = len(seen_keys)
+                    filtered_out = captured_dedup - len(rows)
+                    pushed = len(rows)
+                    logger.info("popfun_log: 分页采集结束 | 抓取(去重前) %d 条, 抓取(去重后) %d 条, 过滤(非error) %d 条, 推送 %d 条", raw_total, captured_dedup, filtered_out, pushed)
                     # txt 仍存一份当前可见的原始 HTML（最后一屏）
                     raw_html = grid_body.first.evaluate("el => el.innerHTML")
                     debug_lines.append("=== 最原始数据：euiDataGridBody.innerHTML（最后一屏，未解析）===")
-                    debug_lines.append(f"去重后总行数: {len(seen_keys)}, error 推送: {len(rows)}\n")
+                    debug_lines.append(f"抓取(去重前): {raw_total} 条, 抓取(去重后): {captured_dedup} 条, 过滤(非error): {filtered_out} 条, 推送: {pushed} 条\n")
                     debug_lines.append(str(raw_html))
             except Exception as e:
                 debug_lines.append(f"euiDataGrid 异常: {e}")
