@@ -11,10 +11,14 @@ from pathlib import Path
 
 from config import (
     FEISHU_POPFUN_LOG_CHAT_ID,
+    OPENAI_API_BASE,
+    OPENAI_API_KEY,
+    OPENAI_MODEL,
     POPFUN_LOG_BASE_URL,
     POPFUN_LOG_PASSWORD,
     POPFUN_LOG_USERNAME,
 )
+from langchain_openai import ChatOpenAI
 from lark_client import send_card_message, send_text_message
 
 logger = logging.getLogger(__name__)
@@ -354,31 +358,74 @@ def _login_and_fetch_error_logs(headless: bool = True) -> list[dict]:
     return rows
 
 
-def _build_log_card(rows: list[dict]) -> dict:
-    """飞书卡片：每条展示 时间 + 消息，以及路径/主机。"""
-    elements = [
-        {
-            "tag": "div",
-            "text": {"tag": "lark_md", "content": f"**Popfun 日志平台** · 近 15 分钟 **error** 日志，共 **{len(rows)}** 条（最多展示 20 条）", "lines": 1},
-        },
-        {"tag": "hr"},
-    ]
-    for i, r in enumerate(rows[:20], 1):
+def _analyze_error_logs_with_llm(rows: list[dict], max_rows: int = 200, max_chars: int = 55000) -> str:
+    """将 error 日志交给大模型做全面分析，返回分析报告文本。未配置 API 或失败时返回空字符串。"""
+    if not rows or not OPENAI_API_KEY:
+        return ""
+    lines: list[str] = []
+    total_chars = 0
+    for i, r in enumerate(rows[:max_rows], 1):
         ts = (r.get("ts") or "").strip()
-        msg = (r.get("message") or "").strip() or "-"
-        path = (r.get("path") or "").strip()
         host = (r.get("host") or "").strip()
-        line = f"**{i}. **"
-        if ts:
-            line += f"\n**时间：** {ts}"
-        line += f"\n**消息：** {msg}"
-        if host:
-            line += f"\n主机: {host}"
-        if path:
-            line += f"\n路径: {path}"
-        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": line}})
-    if len(rows) > 20:
-        elements.append({"tag": "div", "text": {"tag": "plain_text", "content": f"... 共 {len(rows)} 条", "lines": 1}})
+        path = (r.get("path") or "").strip()
+        msg = (r.get("message") or "").strip() or "-"
+        line = f"[{i}] {ts} | host:{host} | path:{path} | message:{msg}"
+        lines.append(line)
+        total_chars += len(line) + 1
+        if total_chars >= max_chars:
+            break
+    log_sample = "\n".join(lines)
+    total = len(rows)
+    sample_n = len(lines)
+    prompt = f"""你是一名运维/后端专家。下面是一批来自 Popfun 日志平台近 15 分钟的 error 日志（每条包含时间、主机、路径、消息）。**总条数 {total} 条**，因篇幅限制这里只提供**前 {sample_n} 条**作为分析样本（约 {100 * sample_n // max(total, 1)}%），分析时请说明「基于前 {sample_n} 条样本（共 {total} 条）」。
+
+请做**全面 error 日志分析**，按以下结构用中文输出（无需代码块、无需重复原始日志）：
+
+1. **分类统计**：按错误类型、模块或路径归纳条数与占比（如：某类错误 N 条、占比 X%）。
+2. **高频错误**：出现次数最多或最典型的几条，写出典型 message 摘要。
+3. **可能根因**：结合 path、host、message 推断可能原因（网络、配置、依赖、业务逻辑等）。
+4. **处理建议**：按优先级给出建议操作（立即处理 / 观察 / 优化等）。
+5. **总结**：一两句话概括当前整体健康度与最需关注的点。
+
+日志样本：
+---
+{log_sample}
+---"""
+
+    try:
+        llm = ChatOpenAI(
+            model=OPENAI_MODEL or "gpt-4o-mini",
+            api_key=OPENAI_API_KEY,
+            base_url=OPENAI_API_BASE or None,
+            temperature=0,
+        )
+        resp = llm.invoke(prompt)
+        return (resp.content or "").strip()
+    except Exception as e:
+        logger.warning("popfun_log LLM 分析失败: %s", e)
+        return ""
+
+
+def _build_log_card(rows: list[dict], analysis: str = "") -> dict:
+    """飞书卡片：上方仅展示 error 总数，主体为大模型分析结果。"""
+    elements: list[dict] = []
+    n = len(rows)
+    elements.append({
+        "tag": "div",
+        "text": {"tag": "lark_md", "content": f"**Popfun 日志平台** · 近 15 分钟 error 日志\n**错误条数：{n} 条**", "lines": 2},
+    })
+    elements.append({"tag": "hr"})
+    if analysis:
+        analysis_trim = analysis[:8000].rstrip() + ("..." if len(analysis) > 8000 else "")
+        elements.append({
+            "tag": "div",
+            "text": {"tag": "lark_md", "content": f"**🤖 AI 分析**\n{analysis_trim}", "lines": 50},
+        })
+    else:
+        elements.append({
+            "tag": "div",
+            "text": {"tag": "plain_text", "content": "（未生成 AI 分析，请检查 OPENAI_API_KEY 或稍后重试）", "lines": 1},
+        })
     elements.append({"tag": "hr"})
     elements.append({
         "tag": "div",
@@ -409,7 +456,7 @@ def run_popfun_log_push(visible: bool = False) -> None:
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(_run)
-            rows = future.result(timeout=600)
+            rows = future.result(timeout=900)
         if not rows:
             send_text_message(
                 chat_id,
@@ -417,9 +464,12 @@ def run_popfun_log_push(visible: bool = False) -> None:
             )
             logger.info("Popfun log: 0 error rows, sent heartbeat to %s", chat_id[:20])
             return
-        card = _build_log_card(rows)
+        analysis = _analyze_error_logs_with_llm(rows)
+        if analysis:
+            logger.info("popfun_log: AI 分析完成，%d 字", len(analysis))
+        card = _build_log_card(rows, analysis=analysis)
         send_card_message(chat_id, card)
-        logger.info("Popfun log: pushed %d error rows to %s", len(rows), chat_id[:20])
+        logger.info("Popfun log: pushed %d error rows (with AI analysis) to %s", len(rows), chat_id[:20])
     except Exception as e:
         logger.exception("Popfun log push error: %s", e)
         send_text_message(
