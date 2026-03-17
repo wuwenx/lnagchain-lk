@@ -90,8 +90,21 @@ def _parse_page_text(text: str, page_url: str) -> list[dict]:
     return items
 
 
+def _get_article_links_from_page(page) -> list[str]:
+    """从当前页获取公告详情链接（/announcements/article/xxx），按 DOM 顺序。"""
+    try:
+        # MEXC 详情页格式：.../announcements/article/[slug]-[id]
+        links = page.locator('a[href*="/announcements/article/"]').evaluate_all(
+            "nodes => nodes.map(n => n.href).filter((h, i, arr) => arr.indexOf(h) === i)"
+        )
+        return list(links) if links else []
+    except Exception as e:
+        logger.warning("mexc get article links failed: %s", e)
+        return []
+
+
 def _extract_page_items(page, page_url: str, parser=_parse_page_text) -> list[dict]:
-    """获取当前页面正文并用指定 parser 解析为公告列表。"""
+    """获取当前页面正文并用指定 parser 解析为公告列表；同时抓取详情链接并按顺序填入。"""
     page.wait_for_selector("body", timeout=15000)
     page.wait_for_timeout(2500)
     try:
@@ -100,7 +113,12 @@ def _extract_page_items(page, page_url: str, parser=_parse_page_text) -> list[di
     except Exception as e:
         logger.warning("body inner_text failed: %s", e)
         return []
-    return parser(text, page_url)
+    items = parser(text, page_url)
+    detail_links = _get_article_links_from_page(page)
+    for i, it in enumerate(items):
+        if i < len(detail_links) and detail_links[i]:
+            it["url"] = detail_links[i]
+    return items
 
 
 def _fetch_mexc_announcements_one_type(
@@ -191,15 +209,22 @@ def _build_mexc_two_sections_card(
         })
     elements.append({"tag": "hr"})
 
+    def _detail_link(url: str) -> str:
+        if url and "/announcements/article/" in url:
+            return f"[详情]({url})"
+        return f"[详情]({url})" if url else ""
+
     if not only_delistings and new_listings:
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": "**新币上线**", "lines": 1}})
         for i, x in enumerate(new_listings[:15], 1):
             snippet = (x.snippet or "").strip()
             if len(snippet) > 80:
                 snippet = snippet[:80] + "..."
+            link = _detail_link(x.url)
+            line = f"{i}. **{x.title[:70]}**\n日期：{x.date or '-'} · {link}\n{snippet or '-'}"
             elements.append({
                 "tag": "div",
-                "text": {"tag": "lark_md", "content": f"{i}. **{x.title[:70]}**\n日期：{x.date or '-'}\n{snippet or '-'}"},
+                "text": {"tag": "lark_md", "content": line},
             })
         elements.append({"tag": "hr"})
 
@@ -209,9 +234,11 @@ def _build_mexc_two_sections_card(
         snippet = (x.snippet or "").strip()
         if len(snippet) > 80:
             snippet = snippet[:80] + "..."
+        link = _detail_link(x.url)
+        line = f"{i}. **{x.title[:70]}**\n日期：{x.date or '-'} · {link}\n{snippet or '-'}"
         elements.append({
             "tag": "div",
-            "text": {"tag": "lark_md", "content": f"{i}. **{x.title[:70]}**\n日期：{x.date or '-'}\n{snippet or '-'}"},
+            "text": {"tag": "lark_md", "content": line},
         })
     if (only_delistings and len(delistings) > 30) or (not only_delistings and len(delistings) > 15):
         elements.append({"tag": "div", "text": {"tag": "plain_text", "content": f"... 下架共 {len(delistings)} 条", "lines": 1}})
