@@ -22,12 +22,14 @@ from lark_client import send_card_message, send_text_message
 
 logger = logging.getLogger(__name__)
 
-# BAPI 公告列表：catalogId=48 为公告分类（下架等），可改
+# BAPI 公告列表：list/48=上新 list/161=下架
 BAPI_LIST_URL = "https://www.binance.com/bapi/composite/v1/public/cms/article/catalog/list/query"
-# 单条公告详情页（格式：/detail/{code}）
 ANNOUNCEMENT_DETAIL_BASE = "https://www.binance.com/zh-CN/support/announcement/detail"
-# 每页条数
 PAGE_SIZE = 15
+# 上新 https://www.binance.com/zh-CN/support/announcement/list/48
+CATALOG_NEW_LISTINGS = 48
+# 下架 https://www.binance.com/zh-CN/support/announcement/list/161
+CATALOG_DELISTINGS = 161
 
 
 @dataclass
@@ -37,6 +39,7 @@ class AnnouncementItem:
     date: str
     url: str
     snippet: str
+    catalog: str  # "new_listings" | "delistings"
 
 
 def _fetch_one_page(catalog_id: int, page_no: int, page_size: int) -> list[dict]:
@@ -67,18 +70,12 @@ def _format_publish_date(ts_ms: int | None) -> str:
         return ""
 
 
-def fetch_binance_announcements(
-    max_pages: int = 2,
-    catalog_id: int = 48,
-) -> list[AnnouncementItem]:
-    """
-    抓取 Binance 公告列表（BAPI），最多 max_pages 页。
-    :return: 按页顺序的 AnnouncementItem 列表
-    """
+def _fetch_one_catalog(catalog_id: int, catalog_label: str, max_pages: int) -> list[AnnouncementItem]:
+    """抓取单个 catalog（上新或下架），去重后返回。"""
     all_items: list[AnnouncementItem] = []
     for page_no in range(1, max_pages + 1):
         articles = _fetch_one_page(catalog_id, page_no, PAGE_SIZE)
-        logger.info("binance_announcements: page %d got %d items", page_no, len(articles))
+        logger.info("binance_announcements: catalog %s page %d got %d items", catalog_label, page_no, len(articles))
         for a in articles:
             code = (a.get("code") or "").strip()
             title = (a.get("title") or "").strip() or "(无标题)"
@@ -88,7 +85,7 @@ def fetch_binance_announcements(
             body = (a.get("body") or "").strip()
             snippet = body[:400] if body else ""
             all_items.append(
-                AnnouncementItem(title=title, date=date, url=url, snippet=snippet)
+                AnnouncementItem(title=title, date=date, url=url, snippet=snippet, catalog=catalog_label)
             )
     seen = set()
     deduped = []
@@ -99,8 +96,24 @@ def fetch_binance_announcements(
         seen.add(key)
         deduped.append(x)
     if len(deduped) < len(all_items):
-        logger.info("binance_announcements: deduped %d -> %d items", len(all_items), len(deduped))
+        logger.info("binance_announcements: %s deduped %d -> %d", catalog_label, len(all_items), len(deduped))
     return deduped
+
+
+def fetch_binance_announcements(
+    max_pages: int = 2,
+    catalog_id: int | None = None,
+) -> list[AnnouncementItem] | tuple[list[AnnouncementItem], list[AnnouncementItem]]:
+    """
+    抓取 Binance 公告。若不传 catalog_id，则同时抓取「上新」(48) 与「下架」(161)，返回 (上新列表, 下架列表)。
+    若传 catalog_id，则只抓取该 catalog，返回单列表（兼容旧用法）。
+    """
+    if catalog_id is not None:
+        label = "new_listings" if catalog_id == CATALOG_NEW_LISTINGS else "delistings"
+        return _fetch_one_catalog(catalog_id, label, max_pages)
+    new_listings = _fetch_one_catalog(CATALOG_NEW_LISTINGS, "new_listings", max_pages)
+    delistings = _fetch_one_catalog(CATALOG_DELISTINGS, "delistings", max_pages)
+    return new_listings, delistings
 
 
 def _translate_titles_to_chinese(titles: list[str], max_batch: int = 30) -> list[str]:
@@ -143,7 +156,7 @@ def _build_announcements_card(
     pages: int,
     titles_zh: list[str] | None = None,
 ) -> dict:
-    """构建飞书卡片：Binance 公告列表，展示中文标题并带详情链接。"""
+    """构建单列表飞书卡片（兼容旧用法）。"""
     elements = [
         {
             "tag": "div",
@@ -162,7 +175,6 @@ def _build_announcements_card(
         snippet = (x.snippet or "").strip()
         if len(snippet) > 120:
             snippet = snippet[:120] + "..."
-        # 飞书 lark_md 支持 [文字](url)
         link_line = f"[查看详情]({x.url})" if x.url else ""
         line = f"**{i+1}. {title_zh}**\n链接：{link_line}\n日期：{x.date or '-'}\n{snippet or '-'}"
         elements.append({
@@ -193,30 +205,92 @@ def _build_announcements_card(
     }
 
 
+def _build_binance_two_sections_card(
+    new_listings: list[AnnouncementItem],
+    delistings: list[AnnouncementItem],
+    pages: int,
+    titles_zh_new: list[str] | None = None,
+    titles_zh_del: list[str] | None = None,
+) -> dict:
+    """构建飞书卡片：上新 + 下架 两块。"""
+    elements = [
+        {
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": f"抓取 **上新**(list/48) 与 **下架**(list/161) 各 **{pages} 页**，仅展示前 15 条/类（标题已译中文）。",
+            },
+        },
+        {"tag": "hr"},
+        {"tag": "div", "text": {"tag": "lark_md", "content": "**上新**", "lines": 1}},
+    ]
+    display_new = new_listings[:15]
+    if titles_zh_new is None:
+        titles_zh_new = [x.title for x in display_new]
+    for i, x in enumerate(display_new):
+        title_zh = (titles_zh_new[i] if i < len(titles_zh_new) else x.title)[:100]
+        link_line = f"[详情]({x.url})" if x.url else ""
+        elements.append({
+            "tag": "div",
+            "text": {"tag": "lark_md", "content": f"{i+1}. {title_zh}\n日期：{x.date or '-'} · {link_line}"},
+        })
+    elements.append({"tag": "hr"})
+    elements.append({"tag": "div", "text": {"tag": "lark_md", "content": "**下架**", "lines": 1}})
+    display_del = delistings[:15]
+    if titles_zh_del is None:
+        titles_zh_del = [x.title for x in display_del]
+    for i, x in enumerate(display_del):
+        title_zh = (titles_zh_del[i] if i < len(titles_zh_del) else x.title)[:100]
+        link_line = f"[详情]({x.url})" if x.url else ""
+        elements.append({
+            "tag": "div",
+            "text": {"tag": "lark_md", "content": f"{i+1}. {title_zh}\n日期：{x.date or '-'} · {link_line}"},
+        })
+    elements.append({"tag": "hr"})
+    elements.append({
+        "tag": "div",
+        "text": {
+            "tag": "plain_text",
+            "content": f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')} · Binance 公告 · 上新 {len(new_listings)} 条 / 下架 {len(delistings)} 条",
+            "lines": 1,
+        },
+    })
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": "📋 Binance 公告（上新 + 下架）", "lines": 1},
+            "template": "blue",
+        },
+        "elements": elements,
+    }
+
+
 def run_binance_announcements_push() -> None:
-    """定时任务：抓取 Binance 公告（页数取配置 BINANCE_ANNOUNCEMENTS_PAGES），推送到 FEISHU_BINANCE_ANNOUNCEMENTS_CHAT_ID。"""
+    """定时任务：抓取 Binance 上新(48)+下架(161)，推送到 FEISHU_BINANCE_ANNOUNCEMENTS_CHAT_ID。"""
     chat_id = (FEISHU_BINANCE_ANNOUNCEMENTS_CHAT_ID or "").strip()
     if not chat_id:
         logger.debug("FEISHU_BINANCE_ANNOUNCEMENTS_CHAT_ID not set, skip Binance announcements push")
         return
     pages = BINANCE_ANNOUNCEMENTS_PAGES
     try:
-        items = fetch_binance_announcements(max_pages=pages)
-        if not items:
+        new_listings, delistings = fetch_binance_announcements(max_pages=pages)
+        if not new_listings and not delistings:
             send_text_message(
                 chat_id,
-                f"Binance 公告：本周期抓取 {pages} 页，未获取到条目。\n🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                f"Binance 公告：本周期抓取上新/下架各 {pages} 页，未获取到条目。\n🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')}",
             )
             logger.info("Binance announcements: 0 items, sent heartbeat to %s", chat_id[:20])
             return
-        titles_zh = _translate_titles_to_chinese([x.title for x in items[:30]])
-        card = _build_announcements_card(items, pages, titles_zh=titles_zh)
+        titles_zh_new = _translate_titles_to_chinese([x.title for x in new_listings[:15]])
+        titles_zh_del = _translate_titles_to_chinese([x.title for x in delistings[:15]])
+        card = _build_binance_two_sections_card(
+            new_listings, delistings, pages,
+            titles_zh_new=titles_zh_new, titles_zh_del=titles_zh_del,
+        )
         send_card_message(chat_id, card)
         logger.info(
-            "Binance announcements: pushed %d items (pages=%s) to %s",
-            len(items),
-            pages,
-            chat_id[:20],
+            "Binance announcements: pushed 上新 %d / 下架 %d (pages=%s) to %s",
+            len(new_listings), len(delistings), pages, chat_id[:20],
         )
     except Exception as e:
         logger.exception("Binance announcements push error: %s", e)
@@ -228,27 +302,35 @@ def run_binance_announcements_push() -> None:
 
 def run(
     max_pages: int | None = None,
+    catalog_id: int | None = None,
     output_json: str | None = None,
-) -> list[AnnouncementItem]:
+) -> list[AnnouncementItem] | tuple[list[AnnouncementItem], list[AnnouncementItem]]:
     """
-    执行抓取并可选写入 JSON。
-    :param max_pages: 抓取页数，默认使用配置 BINANCE_ANNOUNCEMENTS_PAGES
-    :param output_json: 若提供则把结果写入该路径
+    执行抓取并可选写入 JSON。不传 catalog_id 时同时抓取上新+下架，返回 (上新, 下架)。
     """
     pages = max_pages if max_pages is not None else BINANCE_ANNOUNCEMENTS_PAGES
-    items = fetch_binance_announcements(max_pages=pages)
+    result = fetch_binance_announcements(max_pages=pages, catalog_id=catalog_id)
     if output_json:
-        with open(output_json, "w", encoding="utf-8") as f:
-            json.dump([asdict(x) for x in items], f, ensure_ascii=False, indent=2)
-        logger.info("binance_announcements: wrote %d items to %s", len(items), output_json)
-    return items
+        if isinstance(result, tuple):
+            new_listings, delistings = result
+            with open(output_json, "w", encoding="utf-8") as f:
+                json.dump(
+                    {"new_listings": [asdict(x) for x in new_listings], "delistings": [asdict(x) for x in delistings]},
+                    f, ensure_ascii=False, indent=2,
+                )
+            logger.info("binance_announcements: wrote 上新 %d / 下架 %d to %s", len(new_listings), len(delistings), output_json)
+        else:
+            with open(output_json, "w", encoding="utf-8") as f:
+                json.dump([asdict(x) for x in result], f, ensure_ascii=False, indent=2)
+            logger.info("binance_announcements: wrote %d items to %s", len(result), output_json)
+    return result
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    result = run(output_json="tasks/binance_announcements_2pages.json")
-    print(f"共抓取 {len(result)} 条（页数={BINANCE_ANNOUNCEMENTS_PAGES}）")
-    for i, x in enumerate(result[:15], 1):
-        print(f"{i}. {x.title[:60]}... | {x.date} | {x.url[:50]}...")
-    if len(result) > 15:
-        print(f"... 其余 {len(result) - 15} 条见 tasks/binance_announcements_2pages.json")
+    new_l, del_l = run(output_json="tasks/binance_announcements_2pages.json")
+    print(f"上新 {len(new_l)} 条，下架 {len(del_l)} 条（页数={BINANCE_ANNOUNCEMENTS_PAGES}）")
+    for i, x in enumerate(new_l[:5], 1):
+        print(f"  上新 {i}. {x.title[:55]}... | {x.date}")
+    for i, x in enumerate(del_l[:5], 1):
+        print(f"  下架 {i}. {x.title[:55]}... | {x.date}")

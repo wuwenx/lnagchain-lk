@@ -17,6 +17,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from config import (
     FEISHU_BINANCE_ANNOUNCEMENTS_CHAT_ID,
+    FEISHU_BYBIT_ANNOUNCEMENTS_CHAT_ID,
     FEISHU_ENCRYPT_KEY,
     FEISHU_MEXC_DELISTINGS_CHAT_ID,
     FEISHU_NEEDLE_ALERT_CHAT_ID,
@@ -31,6 +32,7 @@ from config import (
 from gitlab_webhook import handle_gitlab_webhook
 from handlers import build_event_handler
 from tasks.binance_announcements import run_binance_announcements_push
+from tasks.bybit_announcements import run_bybit_announcements_push
 from tasks.mexc_delistings import run_mexc_delistings_push
 from tasks.needle_scan import run_needle_scan_push
 from tasks.okx_announcements import run_okx_announcements_push
@@ -54,7 +56,8 @@ async def _lifespan(app: FastAPI):
     has_mexc = bool((FEISHU_MEXC_DELISTINGS_CHAT_ID or "").strip())
     has_binance = bool((FEISHU_BINANCE_ANNOUNCEMENTS_CHAT_ID or "").strip())
     has_okx = bool((FEISHU_OKX_ANNOUNCEMENTS_CHAT_ID or "").strip())
-    if has_toobit or has_needle or has_mexc or has_binance or has_okx:
+    has_bybit = bool((FEISHU_BYBIT_ANNOUNCEMENTS_CHAT_ID or "").strip())
+    if has_toobit or has_needle or has_mexc or has_binance or has_okx or has_bybit:
         _scheduler = BackgroundScheduler()
         if has_toobit:
             _scheduler.add_job(run_toobit_24h_push, "interval", minutes=5, id="toobit_24h")
@@ -91,6 +94,13 @@ async def _lifespan(app: FastAPI):
                 run_okx_announcements_push()
             except Exception as e:
                 logger.exception("OKX announcements first run error: %s", e)
+        if has_bybit:
+            _scheduler.add_job(run_bybit_announcements_push, "interval", minutes=5, id="bybit_announcements")
+            logger.info("Bybit announcements scheduler (every 5 min -> %s)", (FEISHU_BYBIT_ANNOUNCEMENTS_CHAT_ID or "")[:20] + "...")
+            try:
+                run_bybit_announcements_push()
+            except Exception as e:
+                logger.exception("Bybit announcements first run error: %s", e)
         _scheduler.start()
     else:
         logger.debug("No FEISHU_*_CHAT_ID set, schedulers disabled")

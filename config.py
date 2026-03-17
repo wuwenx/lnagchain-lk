@@ -94,6 +94,15 @@ except (TypeError, ValueError):
     _okx_pages = 2
 OKX_ANNOUNCEMENTS_PAGES = max(1, min(5, _okx_pages))
 
+# Bybit 公告定时推送：上币 + 下币，接收卡片的飞书群 chat_id
+FEISHU_BYBIT_ANNOUNCEMENTS_CHAT_ID = _str("FEISHU_BYBIT_ANNOUNCEMENTS_CHAT_ID", "oc_a3df7d8f7b728d12c7e6a4af98fd5eae")
+# 上币/下币各抓取的页数（API 每页默认 20 条）
+try:
+    _bybit_pages = int(os.environ.get("BYBIT_ANNOUNCEMENTS_PAGES", "2") or "2")
+except (TypeError, ValueError):
+    _bybit_pages = 2
+BYBIT_ANNOUNCEMENTS_PAGES = max(1, min(5, _bybit_pages))
+
 # 收到消息并确定会回复时，在用户该条消息上添加的表情回应。须为飞书支持的 emoji_type，如 SMILE、THUMBSUP、LAUGH。不填或空则不添加
 FEISHU_REACTION_EMOJI = _str("FEISHU_REACTION_EMOJI", "SMILE")
 
