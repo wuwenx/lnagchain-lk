@@ -235,6 +235,10 @@ def build_funding_compare_card(rows: list[dict], max_rows: int = 500) -> dict:
         t_str = f"{t_pct:+.4f}%"
         b_str = f"{b_pct:+.4f}%"
         d_str = f"{diff:+.4f}%"
+        if diff > 0:
+            d_str = f'<font color="green">{d_str}</font>'
+        elif diff < 0:
+            d_str = f'<font color="red">{d_str}</font>'
         if abs(diff) >= 0.01:
             d_str = f"**{d_str}**"
         content = f"**{sym}**  ·  Toobit: {t_str}  ·  币安: {b_str}  ·  差值: {d_str}"
