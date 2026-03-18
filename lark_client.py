@@ -27,7 +27,13 @@ from lark_oapi.api.docx.v1.model.block import Block
 from lark_oapi.api.docx.v1.model.text import Text
 from lark_oapi.api.docx.v1.model.text_element import TextElement
 from lark_oapi.api.docx.v1.model.text_run import TextRun
-from config import FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_DOMAIN, FEISHU_DOC_BASE_URL
+from config import (
+    FEISHU_APP_ID,
+    FEISHU_APP_SECRET,
+    FEISHU_DOMAIN,
+    FEISHU_DOC_BASE_URL,
+    PUBLIC_BASE_URL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +203,81 @@ def build_funding_rate_card(lines: list[dict]) -> dict:
         "config": {"wide_screen_mode": True},
         "header": {
             "title": {"tag": "plain_text", "content": "📊 永续合约资金费率", "lines": 1},
+            "template": "blue",
+        },
+        "elements": elements,
+    }
+
+
+def build_funding_compare_card(rows: list[dict], max_rows: int = 500) -> dict:
+    """
+    构建 Toobit vs Binance 资金费率对比卡片。
+    rows 每项: symbol_short, toobit_rate_pct, binance_rate_pct, diff_pct（Toobit - Binance）。
+    """
+    from datetime import datetime
+
+    elements = [
+        {
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": "**全市场共同标的** · 按差值绝对值降序（差值 = Toobit − 币安）",
+                "lines": 2,
+            },
+        },
+        {"tag": "hr"},
+    ]
+    for r in rows[:max_rows]:
+        sym = r.get("symbol_short", "-")
+        t_pct = r.get("toobit_rate_pct", 0)
+        b_pct = r.get("binance_rate_pct", 0)
+        diff = r.get("diff_pct", 0)
+        t_str = f"{t_pct:+.4f}%"
+        b_str = f"{b_pct:+.4f}%"
+        d_str = f"{diff:+.4f}%"
+        if abs(diff) >= 0.01:
+            d_str = f"**{d_str}**"
+        content = f"**{sym}**  ·  Toobit: {t_str}  ·  币安: {b_str}  ·  差值: {d_str}"
+        elements.append({
+            "tag": "div",
+            "text": {"tag": "lark_md", "content": content},
+        })
+    elements.append({"tag": "hr"})
+    if PUBLIC_BASE_URL:
+        download_url = f"{PUBLIC_BASE_URL}/api/funding_compare.xlsx"
+        elements.append({
+            "tag": "action",
+            "actions": [
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "📥 下载 Excel"},
+                    "url": download_url,
+                    "type": "primary",
+                },
+            ],
+        })
+    else:
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "plain_text",
+                "content": "💡 在 .env 中配置 PUBLIC_BASE_URL（服务公网地址）并重启后，将显示「下载 Excel」按钮",
+                "lines": 2,
+            },
+        })
+    elements.append({"tag": "hr"})
+    elements.append({
+        "tag": "div",
+        "text": {
+            "tag": "plain_text",
+            "content": f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M')} · Toobit / Binance 永续合约",
+            "lines": 1,
+        },
+    })
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": "📊 Toobit vs 币安 资金费率对比", "lines": 1},
             "template": "blue",
         },
         "elements": elements,

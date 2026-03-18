@@ -13,10 +13,6 @@ logger = logging.getLogger(__name__)
 EXCHANGE_IDS = {"binance", "okx", "bybit", "toobit"}
 
 
-# 常见交易所 id（ccxt 要求小写）
-EXCHANGE_IDS = {"binance", "okx", "bybit", "toobit"}
-
-
 def _normalize_symbol(symbol: str) -> str:
     """强匹配永续：只取 / 前的 base，统一为 BASE/USDT:USDT，避免 op、BTC/USD 等匹配到错误合约。"""
     s = (symbol or "").strip().upper()
@@ -40,6 +36,8 @@ def _get_exchange(exchange_id: str):
     config = {"enableRateLimit": True, "timeout": 15000}
     if eid == "binance":
         config["options"] = {"defaultType": "future"}
+    if eid == "toobit":
+        config["options"] = {"defaultType": "swap"}
     return getattr(ccxt, eid)(config)
 
 
@@ -76,6 +74,86 @@ def get_funding_rate(exchange_id: str, symbol: str) -> str:
     except Exception as e:
         logger.exception("get_funding_rate error: %s", e)
         return f"获取资金费率失败: {e}"
+
+
+def fetch_all_funding_rates(exchange_id: str) -> dict[str, float]:
+    """
+    获取某交易所全市场永续合约资金费率（符号 -> 费率百分比）。
+    若交易所不支持 fetch_funding_rates() 则返回空 dict。
+    """
+    try:
+        exchange = _get_exchange(exchange_id)
+        if not hasattr(exchange, "fetch_funding_rates"):
+            logger.warning("exchange %s has no fetch_funding_rates", exchange_id)
+            return {}
+        raw = exchange.fetch_funding_rates()
+        out = {}
+        for sym, data in (raw or {}).items():
+            rate = data.get("fundingRate") if isinstance(data, dict) else None
+            if rate is not None:
+                try:
+                    out[sym] = float(rate) * 100
+                except (TypeError, ValueError):
+                    pass
+        return out
+    except Exception as e:
+        logger.exception("fetch_all_funding_rates %s: %s", exchange_id, e)
+        return {}
+
+
+def get_funding_compare_toobit_binance() -> list[dict]:
+    """
+    Toobit 与 Binance 全市场资金费率对比：并行拉取两家全量费率，按共同标的计算差值。
+    返回 list[dict]，每项: symbol_short, toobit_rate_pct, binance_rate_pct, diff_pct（Toobit - Binance）。
+    按 |diff_pct| 降序排列，便于优先看差异大的。
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _short(s: str) -> str:
+        if not s:
+            return s
+        base = s.split("/")[0].split(":")[0].strip()
+        return base or s
+
+    toobit_rates: dict[str, float] = {}
+    binance_rates: dict[str, float] = {}
+
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        fut_toobit = ex.submit(fetch_all_funding_rates, "toobit")
+        fut_binance = ex.submit(fetch_all_funding_rates, "binance")
+        try:
+            toobit_rates = fut_toobit.result(timeout=30)
+        except Exception as e:
+            logger.warning("toobit fetch_all_funding_rates failed: %s", e)
+        try:
+            binance_rates = fut_binance.result(timeout=30)
+        except Exception as e:
+            logger.warning("binance fetch_all_funding_rates failed: %s", e)
+
+    # 统一用 normalized symbol 做 key（如 BTC/USDT:USDT），便于对齐
+    def _norm(s: str) -> str:
+        base = _short(s)
+        return f"{base}/USDT:USDT" if base else s
+
+    t_norm = {_norm(s): (v, _short(s)) for s, v in toobit_rates.items()}
+    b_norm = {_norm(s): (v, _short(s)) for s, v in binance_rates.items()}
+    common_keys = sorted(set(t_norm.keys()) & set(b_norm.keys()))
+    rows = []
+    for k in common_keys:
+        t_pct, t_short = t_norm[k]
+        b_pct, _ = b_norm[k]
+        diff = t_pct - b_pct
+        # 与卡片展示一致：4 位小数下为 0.0000% 的均过滤（阈值 5e-5）
+        if abs(diff) < 5e-5:
+            continue
+        rows.append({
+            "symbol_short": t_short,
+            "toobit_rate_pct": t_pct,
+            "binance_rate_pct": b_pct,
+            "diff_pct": diff,
+        })
+    rows.sort(key=lambda x: -abs(x["diff_pct"]))
+    return rows
 
 
 @tool

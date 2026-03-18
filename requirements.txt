@@ -21,5 +21,8 @@ playwright>=1.40.0
 # 交易所数据（资金费率等）
 ccxt>=4.0.0
 
+# 资金费率对比导出 Excel
+openpyxl>=3.1.0
+
 # 定时任务（Toobit 24h 等）
 APScheduler>=3.10.0

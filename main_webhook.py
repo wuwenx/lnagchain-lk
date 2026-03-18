@@ -194,6 +194,55 @@ async def gitlab_webhook(request: Request):
     return Response(content=b'{"ok":true}', status_code=200, media_type="application/json")
 
 
+@app.get("/api/funding_compare.xlsx")
+def api_funding_compare_xlsx():
+    """
+    资金费率对比导出 Excel：拉取 Toobit / Binance 全市场对比数据，返回 .xlsx 文件供下载。
+    卡片内「下载 Excel」按钮指向此接口（需配置 PUBLIC_BASE_URL 且公网可访问）。
+    """
+    from io import BytesIO
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font
+
+    from tools.funding_rate import get_funding_compare_toobit_binance
+
+    try:
+        rows = get_funding_compare_toobit_binance()
+    except Exception as e:
+        logger.exception("api_funding_compare_xlsx fetch error: %s", e)
+        return Response(
+            content=f"拉取数据失败: {e}".encode("utf-8"),
+            status_code=500,
+            media_type="text/plain; charset=utf-8",
+        )
+    wb = Workbook()
+    ws = wb.active
+    if ws is None:
+        return Response(content=b"internal error", status_code=500)
+    ws.title = "Toobit vs 币安"
+    headers = ("标的", "Toobit(%)", "币安(%)", "差值(%)")
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center")
+    for row_idx, r in enumerate(rows, 2):
+        ws.cell(row=row_idx, column=1, value=r.get("symbol_short", ""))
+        ws.cell(row=row_idx, column=2, value=round(r.get("toobit_rate_pct", 0), 6))
+        ws.cell(row=row_idx, column=3, value=round(r.get("binance_rate_pct", 0), 6))
+        ws.cell(row=row_idx, column=4, value=round(r.get("diff_pct", 0), 6))
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="funding_compare.xlsx"',
+        },
+    )
+
+
 def main():
     errors = validate_webhook_config()
     if errors:

@@ -32,6 +32,8 @@ FEISHU_ENCRYPT_KEY = _str("FEISHU_ENCRYPT_KEY")
 WEBHOOK_HOST = _str("WEBHOOK_HOST", "0.0.0.0")
 WEBHOOK_PORT = _str("WEBHOOK_PORT", "9000")
 WEBHOOK_PATH = _str("WEBHOOK_PATH", "/")
+# 卡片内「打开链接」类按钮使用的基础 URL（如下载 Excel），需公网可访问，不设则不显示下载按钮
+PUBLIC_BASE_URL = _str("PUBLIC_BASE_URL", "").rstrip("/")
 
 # LLM（OpenAI 兼容：OpenAI / DeepSeek / 国内中转等）
 OPENAI_API_KEY = _str("OPENAI_API_KEY")

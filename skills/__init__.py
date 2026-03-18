@@ -61,6 +61,7 @@ def get_all_skills() -> list[Skill]:
 def _register_builtin_skills() -> None:
     from skills.btc import btc_skill
     from skills.fetch import fetch_skill
+    from skills.funding_compare import funding_compare_skill
     from skills.funding_rate import funding_rate_skill
     from skills.help import help_skill
     from skills.jks import jks_skill
@@ -74,6 +75,7 @@ def _register_builtin_skills() -> None:
     register(rank_skill)
     register(fetch_skill)
     register(new_doc_skill)
+    register(funding_compare_skill)  # 放在 funding_rate 前，使「资金费率监控」先命中
     register(funding_rate_skill)
     register(jks_skill)
 

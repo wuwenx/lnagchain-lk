@@ -55,7 +55,7 @@ def _fetch_node(state: ChatState) -> ChatState:
 
 
 def _skill_node(state: ChatState) -> ChatState:
-    """根据 skill_id 调对应 skill.run，写 reply_text。"""
+    """根据 skill_id 调对应 skill.run，写 reply_text、reply_card。支持 run 返回 (text, card)。"""
     skill_id = state.get("skill_id")
     skill = _get_skill_by_id(skill_id) if skill_id else None
     if not skill:
@@ -64,7 +64,13 @@ def _skill_node(state: ChatState) -> ChatState:
     doc = state.get("document_context") or ""
     chat_id = state.get("chat_id") or ""
     out = skill.run(text, document_context=doc or None, chat_id=chat_id)
-    return {**state, "reply_text": out or "", "reply_card": None}
+    if isinstance(out, tuple):
+        reply_text = (out[0] or "").strip() if out else ""
+        reply_card = out[1] if len(out) > 1 else None
+    else:
+        reply_text = (out or "").strip()
+        reply_card = None
+    return {**state, "reply_text": reply_text, "reply_card": reply_card}
 
 
 def _agent_node(state: ChatState) -> ChatState:
