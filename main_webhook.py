@@ -104,13 +104,13 @@ async def _lifespan(app: FastAPI):
         #         run_bybit_announcements_push()
         #     except Exception as e:
         #         logger.exception("Bybit announcements first run error: %s", e)
-        if has_popfun:
-            _scheduler.add_job(run_popfun_log_push, "interval", minutes=15, id="popfun_log")
-            logger.info("Popfun log scheduler (every 15 min -> %s)", (FEISHU_POPFUN_LOG_CHAT_ID or "")[:20] + "...")
-            try:
-                run_popfun_log_push()
-            except Exception as e:
-                logger.exception("Popfun log first run error: %s", e)
+        # if has_popfun:
+        #     _scheduler.add_job(run_popfun_log_push, "interval", minutes=15, id="popfun_log")
+        #     logger.info("Popfun log scheduler (every 15 min -> %s)", (FEISHU_POPFUN_LOG_CHAT_ID or "")[:20] + "...")
+        #     try:
+        #         run_popfun_log_push()
+        #     except Exception as e:
+        #         logger.exception("Popfun log first run error: %s", e)
         _scheduler.start()
     else:
         logger.debug("No FEISHU_*_CHAT_ID set, schedulers disabled")
