@@ -120,6 +120,11 @@ POPFUN_LOG_USERNAME = _str("POPFUN_LOG_USERNAME", "read")
 POPFUN_LOG_PASSWORD = _str("POPFUN_LOG_PASSWORD", "")
 FEISHU_POPFUN_LOG_CHAT_ID = _str("FEISHU_POPFUN_LOG_CHAT_ID", "oc_0ef90b86531f087ef931863bb64121fd")
 
+# 代码修改助手（/code）：仅在此群内可触发，用于通过 Lark 修改本地代码
+FEISHU_CODE_AGENT_CHAT_ID = _str("FEISHU_CODE_AGENT_CHAT_ID", "oc_26bb8b21a07f1bc01d79169013ef973a")
+# 代码助手操作目录：读/写/替换/执行命令均基于此目录；不设则使用本项目根目录
+CODE_WORKSPACE_ROOT = _str("CODE_WORKSPACE_ROOT", "/Users/wuwenxiang/wuwx/mm-admin").strip() or None
+
 
 def validate_config() -> list[str]:
     """校验必填配置，返回错误信息列表。"""

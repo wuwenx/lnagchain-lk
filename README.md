@@ -17,6 +17,7 @@
 - **多群流水线**：在 A 群 @ 机器人发消息时，自动走「A=需求分析 → B=方案生成 → C=总结输出」三阶段，结果依次发到 A、B、C 群，最终总结在 C 群输出（需在 `.env` 配置三个群的 `FEISHU_PIPELINE_STAGE_*_CHAT_ID`）
 - **文档/知识库搜索**：发 `/search 关键词` 或「搜索 xxx」时，调用飞书开放平台 [search v2 doc_wiki](https://open.larksuite.com/document/uAjLw4CM/ukTMukTMukTM/search-v2/doc_wiki/search) 搜索企业内文档与知识库，再由大模型总结汇总；需应用具备文档与知识库读权限
 - **可扩展**：可在此项目上增加 RAG、Agent+Tools 等
+- **本地代码助手**：基于 LangGraph ReAct 智能体，提供读/写/精准替换/执行命令等工具，实现类似 OpenClaude/Cline 的本地代码修改能力（见「本地代码助手」小节）
 
 ## 环境要求
 
@@ -63,6 +64,20 @@ cp .env.example .env
 .venv/bin/python main.py
 ```
 
+### 本地代码助手（Code Agent）
+
+在项目根目录下运行，让 AI 查看和修改本地代码（需已配置 `OPENAI_API_KEY`）。**使用前请确保代码已提交到 Git。**
+
+```bash
+# 单条指令
+.venv/bin/python code_agent.py "请查看 ./config.py 并告诉我 OPENAI_MODEL 的默认值"
+
+# 交互式（多行输入后 Ctrl+D 结束）
+.venv/bin/python code_agent.py
+```
+
+工具包括：`read_local_file`、`write_local_file`、`replace_code_block`（精准替换，适合大文件）、`run_command`（执行 shell 命令如 pytest）。工作区目录由 `CODE_WORKSPACE_ROOT` 配置（默认 `mm-admin` 项目路径），可在 `.env` 中修改。
+
 ## 配置说明（.env）
 
 | 变量 | 必填 | 说明 |
@@ -82,6 +97,8 @@ cp .env.example .env
 | `FEISHU_PIPELINE_STAGE_A_CHAT_ID` | 否 | 多群流水线 A 群（需求分析）chat_id，不填则不启用流水线 |
 | `FEISHU_PIPELINE_STAGE_B_CHAT_ID` | 否 | 多群流水线 B 群（方案生成）chat_id |
 | `FEISHU_PIPELINE_STAGE_C_CHAT_ID` | 否 | 多群流水线 C 群（总结输出）chat_id |
+| `FEISHU_CODE_AGENT_CHAT_ID` | 否 | 代码修改（/code）仅在此群可触发，不填则不在 Lark 开放该功能 |
+| `CODE_WORKSPACE_ROOT` | 否 | 代码助手操作目录（读/写/替换/执行命令均基于此目录），不设则使用本项目根目录，默认 `mm-admin` 路径 |
 
 ## 项目结构
 
@@ -90,11 +107,12 @@ lnagchain-lk/
 ├── main_webhook.py      # Webhook 模式入口（请求地址）
 ├── main.py              # WebSocket 模式入口（若平台仍支持）
 ├── handlers.py          # 事件处理（消息解析、LangChain 回复）
-├── tools/               # LangChain 工具：get_funding_rate、get_liquidity_depth_multi（ccxt）
 ├── feishu_doc.py        # 飞书文档/知识库链接解析与正文拉取
 ├── skills/              # 技能：/btc、/rank、/资金费率、网页抓取等
 ├── lark_client.py       # 飞书 HTTP 客户端与发送消息
 ├── langchain_agent.py   # LangChain 对话链（可改为 Agent/RAG）
+├── code_agent.py        # 本地代码修改助手（LangGraph ReAct + 文件/命令工具）
+├── tools/               # LangChain 工具：资金费率、流动性深度、code_tools（读/写/替换/执行）
 ├── config.py            # 配置加载与校验
 ├── requirements.txt
 ├── .env.example
