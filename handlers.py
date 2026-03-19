@@ -265,6 +265,18 @@ def handle_message(data) -> None:
                 len(wiki_tokens),
                 len(document_context or ""),
             )
+        # 若用户回复「分析/总结/基于数据」且本会话近期发过资费对比卡片，注入缓存数据供 LLM 分析
+        _analysis_keywords = ("分析", "总结", "基于数据", "给出结论", "分析结果", "解读", "怎么看")
+        if any(kw in text for kw in _analysis_keywords):
+            from context_cache import get_funding_compare_data
+            funding_text = get_funding_compare_data(chat_id)
+            if funding_text:
+                document_context = (
+                    (document_context or "")
+                    + "\n\n【上一条 Toobit vs 币安 资金费率对比数据（可直接基于下表分析）】\n"
+                    + funding_text
+                )
+                logger.info("injected cached funding compare data for analysis, len=%d", len(funding_text))
         logger.info("user message: %s", text[:200])
         # 多群流水线：仅当消息来自 A 群且已配置 A 的 chat_id 时触发
         pipeline_a = (FEISHU_PIPELINE_STAGE_A_CHAT_ID or "").strip()

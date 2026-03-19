@@ -5,6 +5,7 @@
 """
 import logging
 
+from context_cache import set_funding_compare_data
 from lark_client import build_funding_compare_card
 from tools.funding_rate import get_funding_compare_toobit_binance
 
@@ -26,6 +27,8 @@ def run_funding_compare(
         rows = get_funding_compare_toobit_binance()
         if not rows:
             return ("Toobit 或 Binance 未拉取到共同标的资金费率，请稍后重试。", None)
+        if chat_id:
+            set_funding_compare_data(chat_id, rows)
         card = build_funding_compare_card(rows)
         return ("", card)
     except Exception as e:

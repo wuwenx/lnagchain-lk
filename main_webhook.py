@@ -76,41 +76,41 @@ async def _lifespan(app: FastAPI):
                 run_needle_scan_push()
             except Exception as e:
                 logger.exception("Needle scan first run error: %s", e)
-        # if has_mexc:
-        #     _scheduler.add_job(run_mexc_delistings_push, "interval", minutes=5, id="mexc_delistings")
-        #     logger.info("MEXC delistings scheduler (every 5 min -> %s)", (FEISHU_MEXC_DELISTINGS_CHAT_ID or "")[:20] + "...")
-        #     try:
-        #         run_mexc_delistings_push()
-        #     except Exception as e:
-        #         logger.exception("MEXC delistings first run error: %s", e)
-        # if has_binance:
-        #     _scheduler.add_job(run_binance_announcements_push, "interval", minutes=5, id="binance_announcements")
-        #     logger.info("Binance announcements scheduler (every 5 min -> %s)", (FEISHU_BINANCE_ANNOUNCEMENTS_CHAT_ID or "")[:20] + "...")
-        #     try:
-        #         run_binance_announcements_push()
-        #     except Exception as e:
-        #         logger.exception("Binance announcements first run error: %s", e)
-        # if has_okx:
-        #     _scheduler.add_job(run_okx_announcements_push, "interval", minutes=5, id="okx_announcements")
-        #     logger.info("OKX announcements scheduler (every 5 min -> %s)", (FEISHU_OKX_ANNOUNCEMENTS_CHAT_ID or "")[:20] + "...")
-        #     try:
-        #         run_okx_announcements_push()
-        #     except Exception as e:
-        #         logger.exception("OKX announcements first run error: %s", e)
-        # if has_bybit:
-        #     _scheduler.add_job(run_bybit_announcements_push, "interval", minutes=5, id="bybit_announcements")
-        #     logger.info("Bybit announcements scheduler (every 5 min -> %s)", (FEISHU_BYBIT_ANNOUNCEMENTS_CHAT_ID or "")[:20] + "...")
-        #     try:
-        #         run_bybit_announcements_push()
-        #     except Exception as e:
-        #         logger.exception("Bybit announcements first run error: %s", e)
-        # if has_popfun:
-        #     _scheduler.add_job(run_popfun_log_push, "interval", minutes=15, id="popfun_log")
-        #     logger.info("Popfun log scheduler (every 15 min -> %s)", (FEISHU_POPFUN_LOG_CHAT_ID or "")[:20] + "...")
-        #     try:
-        #         run_popfun_log_push()
-        #     except Exception as e:
-        #         logger.exception("Popfun log first run error: %s", e)
+        if has_mexc:
+            _scheduler.add_job(run_mexc_delistings_push, "interval", minutes=5, id="mexc_delistings")
+            logger.info("MEXC delistings scheduler (every 5 min -> %s)", (FEISHU_MEXC_DELISTINGS_CHAT_ID or "")[:20] + "...")
+            try:
+                run_mexc_delistings_push()
+            except Exception as e:
+                logger.exception("MEXC delistings first run error: %s", e)
+        if has_binance:
+            _scheduler.add_job(run_binance_announcements_push, "interval", minutes=5, id="binance_announcements")
+            logger.info("Binance announcements scheduler (every 5 min -> %s)", (FEISHU_BINANCE_ANNOUNCEMENTS_CHAT_ID or "")[:20] + "...")
+            try:
+                run_binance_announcements_push()
+            except Exception as e:
+                logger.exception("Binance announcements first run error: %s", e)
+        if has_okx:
+            _scheduler.add_job(run_okx_announcements_push, "interval", minutes=5, id="okx_announcements")
+            logger.info("OKX announcements scheduler (every 5 min -> %s)", (FEISHU_OKX_ANNOUNCEMENTS_CHAT_ID or "")[:20] + "...")
+            try:
+                run_okx_announcements_push()
+            except Exception as e:
+                logger.exception("OKX announcements first run error: %s", e)
+        if has_bybit:
+            _scheduler.add_job(run_bybit_announcements_push, "interval", minutes=5, id="bybit_announcements")
+            logger.info("Bybit announcements scheduler (every 5 min -> %s)", (FEISHU_BYBIT_ANNOUNCEMENTS_CHAT_ID or "")[:20] + "...")
+            try:
+                run_bybit_announcements_push()
+            except Exception as e:
+                logger.exception("Bybit announcements first run error: %s", e)
+        if has_popfun:
+            _scheduler.add_job(run_popfun_log_push, "interval", minutes=15, id="popfun_log")
+            logger.info("Popfun log scheduler (every 15 min -> %s)", (FEISHU_POPFUN_LOG_CHAT_ID or "")[:20] + "...")
+            try:
+                run_popfun_log_push()
+            except Exception as e:
+                logger.exception("Popfun log first run error: %s", e)
         _scheduler.start()
     else:
         logger.debug("No FEISHU_*_CHAT_ID set, schedulers disabled")
