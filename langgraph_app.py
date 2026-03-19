@@ -8,7 +8,7 @@ from typing import Literal, TypedDict
 from langgraph.graph import END, StateGraph
 from langchain_core.messages import BaseMessage
 
-from skills import get_all_skills, resolve_skill
+from skills import get_all_skills, resolve_skill, resolve_skill_by_keywords
 from skills.fetch import fetch_skill, should_trigger_fetch
 from langchain_agent import reply as langchain_reply
 
@@ -35,11 +35,13 @@ def _get_skill_by_id(skill_id: str):
 
 
 def _route_node(state: ChatState) -> ChatState:
-    """路由：先 fetch 再 resolve_skill，写 route 与 skill_id。"""
+    """路由：先 fetch 再 resolve_skill（前缀），再 resolve_skill_by_keywords（包含），最后 agent。"""
     text = (state.get("user_message") or "").strip()
     if should_trigger_fetch(text):
         return {**state, "route": "fetch"}
     skill = resolve_skill(text)
+    if not skill:
+        skill = resolve_skill_by_keywords(text)
     if skill:
         return {**state, "route": "skill", "skill_id": skill.id}
     return {**state, "route": "agent", "skill_id": None}
