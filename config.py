@@ -1,6 +1,7 @@
 """
 配置：从环境变量加载飞书与 LLM 配置
 """
+import json
 import os
 from pathlib import Path
 
@@ -130,6 +131,15 @@ APIFOX_ACCESS_TOKEN = _str("APIFOX_ACCESS_TOKEN", "")
 APIFOX_PROJECT_ID = _str("APIFOX_PROJECT_ID", "")
 APIFOX_MODULE_ID = _str("APIFOX_MODULE_ID", "").strip() or None  # 可选，不设则导出默认模块
 APIFOX_API_BASE = _str("APIFOX_API_BASE", "https://api.apifox.com").rstrip("/")
+# 可选：模块名 → Apifox 模块 ID 的 JSON，供 /api 技能按名称切换模块，如 {"订单":123,"用户":456}
+_APIFOX_MODULE_MAP_RAW = _str("APIFOX_MODULE_MAP", "")
+try:
+    _m = json.loads(_APIFOX_MODULE_MAP_RAW) if _APIFOX_MODULE_MAP_RAW else {}
+    APIFOX_MODULE_MAP: dict[str, int] = (
+        {str(k): int(v) for k, v in _m.items()} if isinstance(_m, dict) else {}
+    )
+except (TypeError, ValueError, json.JSONDecodeError):
+    APIFOX_MODULE_MAP = {}
 
 
 def validate_config() -> list[str]:

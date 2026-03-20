@@ -78,6 +78,7 @@ def get_all_skills() -> list[Skill]:
 
 
 def _register_builtin_skills() -> None:
+    from skills.apifox_api_skill import apifox_api_skill
     from skills.btc import btc_skill
     from skills.code_agent_skill import code_agent_skill
     from skills.fetch import fetch_skill
@@ -92,6 +93,7 @@ def _register_builtin_skills() -> None:
     from skills.search_doc import search_doc_skill
 
     register(help_skill)
+    register(apifox_api_skill)
     register(search_doc_skill)
     register(btc_skill)
     register(rank_skill)

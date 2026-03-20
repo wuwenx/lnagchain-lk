@@ -19,6 +19,7 @@
 - **可扩展**：可在此项目上增加 RAG、Agent+Tools 等
 - **本地代码助手**：基于 LangGraph ReAct 智能体，提供读/写/精准替换/执行命令等工具，实现类似 OpenClaude/Cline 的本地代码修改能力（见「本地代码助手」小节）
 - **生成前端**：在指定群发「生成前端」并附带飞书需求文档链接，自动拉取 Lark 文档 + Apifox 接口文档（开放 API），由代码助手生成路由、菜单、页面并写入 `CODE_WORKSPACE_ROOT`（需配置 Apifox 令牌与项目 ID）
+- **Apifox 接口查询**：发 `/api` 或 `/api 帮助` 查看说明；`/api` 列出当前模块全部接口，`/api 做市` 等关键词按目录/tag 或路径筛选，`/api <模块ID>` 指定 Apifox 模块（可选配置 `APIFOX_MODULE_MAP` 用中文别名）
 
 ## 环境要求
 
@@ -89,6 +90,10 @@ cp .env.example .env
 
 需在 `.env` 配置 `APIFOX_ACCESS_TOKEN`、`APIFOX_PROJECT_ID`（可选 `APIFOX_MODULE_ID`）。示例消息：`生成前端 https://xxx.feishu.cn/docx/xxxxx`。
 
+### Apifox 接口列表（/api）
+
+与「生成前端」共用同一套 Apifox 配置。发 **`/api 帮助`** 查看完整用法。典型用法：`/api`（默认/配置的模块）、`/api 关键词`（按 Apifox 目录写入的 tag、路径或摘要筛选）、`/api 123`（数字为项目内模块 ID）。若需在对话里用中文切换模块，可在 `.env` 设置 **`APIFOX_MODULE_MAP`**（JSON，如 `{"做市":123}`）。
+
 ## 配置说明（.env）
 
 | 变量 | 必填 | 说明 |
@@ -113,6 +118,7 @@ cp .env.example .env
 | `APIFOX_ACCESS_TOKEN` | 生成前端必填 | Apifox 开放 API 系统级访问令牌 |
 | `APIFOX_PROJECT_ID` | 生成前端必填 | Apifox 项目 ID（导出 OpenAPI 用） |
 | `APIFOX_MODULE_ID` | 否 | Apifox 模块 ID，不填则导出默认模块 |
+| `APIFOX_MODULE_MAP` | 否 | JSON，模块别名 → 数字 ID，供 `/api` 按名称切换模块，如 `{"用户":456}` |
 | `APIFOX_API_BASE` | 否 | Apifox API 根地址，默认 `https://api.apifox.com` |
 
 ## 项目结构
