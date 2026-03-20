@@ -18,10 +18,24 @@ from config import (
     FEISHU_PIPELINE_STAGE_B_CHAT_ID,
     FEISHU_PIPELINE_STAGE_C_CHAT_ID,
     FEISHU_REACTION_EMOJI,
+    FEISHU_DOC_FETCH_IMAGES,
+    VISION_MAX_IMAGE_BYTES,
+    VISION_MAX_IMAGES,
 )
-from feishu_doc import extract_document_ids, extract_wiki_node_tokens, fetch_documents_content
+from feishu_doc import (
+    extract_document_ids,
+    extract_wiki_node_tokens,
+    fetch_documents_content,
+    fetch_documents_content_and_images,
+)
 from langgraph_app import run as graph_run
-from lark_client import send_text_message, send_card_message, update_text_message, add_message_reaction
+from lark_client import (
+    send_text_message,
+    send_card_message,
+    update_text_message,
+    add_message_reaction,
+    download_message_resource,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,17 +70,117 @@ def _append_to_history(chat_id: str, user_text: str, assistant_text: str) -> Non
             _chat_histories[chat_id] = hist[-MAX_HISTORY_LEN:]
 
 
+def _collect_text_from_post_body(obj: dict) -> str:
+    """从 post 富文本中抽取 title + 各 text 节点（支持 zh_cn / en_us 等）。"""
+    parts: list[str] = []
+    for locale in ("zh_cn", "en_us", "ja_jp", "zh_hk"):
+        block = obj.get(locale)
+        if not isinstance(block, dict):
+            continue
+        t = (block.get("title") or "").strip()
+        if t:
+            parts.append(t)
+        for row in block.get("content") or []:
+            if not isinstance(row, list):
+                continue
+            for el in row:
+                if isinstance(el, dict) and el.get("tag") == "text":
+                    parts.append(el.get("text") or "")
+    if not parts:
+        # 无多语言壳时，递归收集 tag=text
+        def walk(o) -> None:
+            if isinstance(o, dict):
+                if o.get("tag") == "text" and "text" in o:
+                    parts.append(str(o.get("text") or ""))
+                for v in o.values():
+                    walk(v)
+            elif isinstance(o, list):
+                for x in o:
+                    walk(x)
+
+        walk(obj)
+    return "\n".join(x for x in parts if x).strip()
+
+
 def _extract_text_from_content(content: str, message_type: str) -> str:
     """从飞书消息 content（JSON 字符串）中解析文本。"""
     if not content:
         return ""
     try:
         obj = json.loads(content)
-        if message_type == "text":
+        if not isinstance(obj, dict):
+            return ""
+        mt = (message_type or "text").lower()
+        if mt == "text":
             return (obj.get("text") or "").strip()
+        if mt == "post":
+            return _collect_text_from_post_body(obj)
+        # 部分客户端可能带错 type，仍尝试取 text / post 结构
+        if obj.get("text"):
+            return (obj.get("text") or "").strip()
+        if "zh_cn" in obj or "en_us" in obj:
+            return _collect_text_from_post_body(obj)
         return ""
     except json.JSONDecodeError:
         return content.strip()
+
+
+def _is_image_or_no_text_payload(message_type: str, content: str) -> bool:
+    """是否为纯图片、文件等非文本负载（用于提示用户改发文字）。"""
+    mt = (message_type or "").lower()
+    if mt in ("image", "file", "audio", "video", "media", "sticker"):
+        return True
+    if not content:
+        return False
+    try:
+        o = json.loads(content)
+        if isinstance(o, dict) and o.get("image_key"):
+            return True
+    except json.JSONDecodeError:
+        pass
+    return False
+
+
+def _extract_image_keys_from_content(content: str, message_type: str) -> list[str]:
+    """从消息 content 中收集 image_key（image 类型或 post 富文本中的 img）。"""
+    keys: list[str] = []
+    if not content:
+        return keys
+    try:
+        o = json.loads(content)
+    except json.JSONDecodeError:
+        return keys
+    if not isinstance(o, dict):
+        return keys
+    mt = (message_type or "").lower()
+    if mt == "image" and o.get("image_key"):
+        keys.append(str(o["image_key"]))
+
+    def walk(obj) -> None:
+        if isinstance(obj, dict):
+            if obj.get("tag") == "img" and obj.get("image_key"):
+                keys.append(str(obj["image_key"]))
+            for v in obj.values():
+                walk(v)
+        elif isinstance(obj, list):
+            for x in obj:
+                walk(x)
+
+    walk(o)
+    seen: set[str] = set()
+    out: list[str] = []
+    for k in keys:
+        if k and k not in seen:
+            seen.add(k)
+            out.append(k)
+    return out
+
+
+# 用户只发图、无文字时，给多模态模型的系统提示
+_VISION_DEFAULT_USER_TEXT = (
+    "请识别图片中的文字与界面内容（例如接口文档、表格、截图），用中文简要说明。"
+    "若包含 API 路径、请求参数与返回结构，请整理列出。"
+)
 
 
 def _strip_mention_tags(text: str) -> str:
@@ -232,10 +346,53 @@ def handle_message(data) -> None:
             return
         if not _should_reply_to_chat(data):
             return
-        text = _extract_text_from_content(content, message_type)
-        if not text:
-            logger.info("empty text or non-text message, skip")
+        raw_text = _extract_text_from_content(content, message_type)
+        text = raw_text
+        msg_id = _get_message_id(message)
+        image_keys = _extract_image_keys_from_content(content, message_type)
+        image_bytes_list: list[bytes] = []
+        if msg_id and image_keys:
+            for key in image_keys[:VISION_MAX_IMAGES]:
+                raw_img = download_message_resource(msg_id, key, "image")
+                if not raw_img:
+                    logger.warning("download image failed key=%s", key[:48])
+                    continue
+                if len(raw_img) > VISION_MAX_IMAGE_BYTES:
+                    logger.warning("skip oversized image: %s bytes", len(raw_img))
+                    continue
+                image_bytes_list.append(raw_img)
+
+        if not text and not image_bytes_list:
+            mt_low = (message_type or "").lower()
+            if image_keys:
+                logger.info("image_keys present but download failed or empty, message_type=%s", message_type)
+                send_text_message(
+                    chat_id,
+                    "检测到图片，但资源无法下载。请在飞书开放平台为应用开启「获取消息中的资源文件」相关权限（如 **im:resource**），或改用纯文字描述。",
+                )
+            elif _is_image_or_no_text_payload(message_type, content) or mt_low == "post":
+                logger.info("empty text, message_type=%s, reply with hint to user", message_type)
+                send_text_message(
+                    chat_id,
+                    "当前消息没有可识别的文字或可用的图片资源。\n"
+                    "• 若发了截图：请确认应用已开通消息资源下载权限；也可改用「文字 + 图片」一起发送。\n"
+                    "• 也可直接输入文字，例如：`/api /v1/xxx 参数与返回类型`",
+                )
+            else:
+                logger.info(
+                    "empty text or non-text message, message_type=%s, skip",
+                    message_type,
+                )
             return
+
+        if not text and image_bytes_list:
+            text = _VISION_DEFAULT_USER_TEXT
+
+        if (raw_text or "").strip():
+            hist_user = _strip_mention_tags(raw_text) or ("[图片]" if image_bytes_list else text)
+        else:
+            hist_user = "[图片]" if image_bytes_list else text
+
         text_before_strip = text
         text = _strip_mention_tags(text)
         # strip 与 FEISHU_BOT_OPEN_ID 无关：前者用于「匹配指令」（content 去 @ 后得到 /jks），后者用于「是否回复」（mentions 含本 bot 才回）
@@ -246,7 +403,6 @@ def handle_message(data) -> None:
         # 在用户消息上添加「处理中」表情回应（如 🔥），需应用有 im:message:reaction 权限
         reaction_emoji = (FEISHU_REACTION_EMOJI or "").strip()
         if reaction_emoji:
-            msg_id = _get_message_id(message)
             if msg_id:
                 ok = add_message_reaction(msg_id, reaction_emoji)
                 if not ok:
@@ -257,14 +413,41 @@ def handle_message(data) -> None:
         # 若消息中含飞书文档或知识库链接，拉取正文作为上下文
         doc_ids = extract_document_ids(text)
         wiki_tokens = extract_wiki_node_tokens(text)
-        document_context = fetch_documents_content(doc_ids, wiki_tokens=wiki_tokens) if (doc_ids or wiki_tokens) else ""
+        doc_image_bytes: list[bytes] = []
         if doc_ids or wiki_tokens:
+            if FEISHU_DOC_FETCH_IMAGES:
+                document_context, doc_image_bytes = fetch_documents_content_and_images(
+                    doc_ids,
+                    wiki_tokens=wiki_tokens,
+                    max_chars=50000,
+                )
+            else:
+                document_context = fetch_documents_content(doc_ids, wiki_tokens=wiki_tokens)
+                doc_image_bytes = []
+            if doc_image_bytes:
+                document_context = (
+                    "【说明】以下「文档正文」来自飞书 docx 的 raw_content；"
+                    "其后附带的多张图片为从同一文档中提取的内嵌图（截图、流程图、表格图等），请与正文一并理解需求。\n\n"
+                    + (document_context or "")
+                )
             logger.info(
-                "found %d doc link(s), %d wiki link(s), fetched context len=%d",
+                "found %d doc link(s), %d wiki link(s), context_len=%d doc_images=%d",
                 len(doc_ids),
                 len(wiki_tokens),
                 len(document_context or ""),
+                len(doc_image_bytes),
             )
+        else:
+            document_context = ""
+        merged_images: list[bytes] = []
+        for b in image_bytes_list:
+            if len(merged_images) >= VISION_MAX_IMAGES:
+                break
+            merged_images.append(b)
+        for b in doc_image_bytes:
+            if len(merged_images) >= VISION_MAX_IMAGES:
+                break
+            merged_images.append(b)
         # 若用户回复「分析/总结/基于数据」且本会话近期发过资费对比卡片，注入缓存数据供 LLM 分析
         _analysis_keywords = ("分析", "总结", "基于数据", "给出结论", "分析结果", "解读", "怎么看")
         if any(kw in text for kw in _analysis_keywords):
@@ -291,6 +474,7 @@ def handle_message(data) -> None:
             document_context=document_context or "",
             chat_id=chat_id,
             history=history,
+            image_bytes_list=merged_images if merged_images else None,
         )
         # 确保 reply_text 为字符串（若某节点误返回 tuple 则取首元素）
         if isinstance(reply_text, tuple):
@@ -299,10 +483,10 @@ def handle_message(data) -> None:
             reply_text = (reply_text or "").strip() if reply_text else ""
         if reply_card:
             send_card_message(chat_id, reply_card)
-            _append_to_history(chat_id, text, "✅ 见下方卡片")
+            _append_to_history(chat_id, hist_user, "✅ 见下方卡片")
         elif reply_text:
             send_text_message(chat_id, reply_text)
-            _append_to_history(chat_id, text, reply_text)
+            _append_to_history(chat_id, hist_user, reply_text)
         else:
             send_text_message(chat_id, "抱歉，我暂时无法生成回复。")
         logger.info("replied to chat_id=%s", chat_id)

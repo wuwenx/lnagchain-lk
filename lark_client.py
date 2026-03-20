@@ -549,6 +549,127 @@ def _get_tenant_access_token() -> str | None:
         return None
 
 
+def download_message_resource(
+    message_id: str,
+    file_key: str,
+    resource_type: str = "image",
+) -> bytes | None:
+    """
+    下载会话消息中的资源文件（用户发送的图片等）。
+    对应开放平台：获取消息中的资源文件
+    GET /open-apis/im/v1/messages/{message_id}/resources/{file_key}?type=image
+    需应用具备读取消息资源相关权限（如 im:resource）。
+    """
+    if not message_id or not file_key:
+        return None
+    token = _get_tenant_access_token()
+    if not token:
+        logger.warning("download_message_resource: no tenant_access_token")
+        return None
+    from urllib.parse import quote
+
+    safe_key = quote(file_key, safe="")
+    base = (FEISHU_DOMAIN or "https://open.feishu.cn").rstrip("/")
+    url = f"{base}/open-apis/im/v1/messages/{message_id}/resources/{safe_key}"
+    params = {"type": resource_type}
+    try:
+        r = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            params=params,
+            timeout=60,
+        )
+        if r.status_code != 200:
+            logger.warning(
+                "download_message_resource failed: status=%s file_key=%s msg=%s",
+                r.status_code,
+                file_key[:40],
+                (r.text or "")[:300],
+            )
+            return None
+        ct = (r.headers.get("Content-Type") or "").lower()
+        if "application/json" in ct:
+            try:
+                body = r.json()
+                if isinstance(body, dict) and body.get("code") not in (0, None):
+                    logger.warning(
+                        "download_message_resource API error: %s",
+                        body.get("msg") or body,
+                    )
+            except json.JSONDecodeError:
+                pass
+            return None
+        data = r.content
+        return data if data else None
+    except Exception as e:
+        logger.exception("download_message_resource error: %s", e)
+        return None
+
+
+def batch_get_media_tmp_download_urls(file_tokens: list[str]) -> dict[str, str]:
+    """
+    云文档内素材（图片块等）临时下载链接。
+    GET /open-apis/drive/v1/medias/batch_get_tmp_download_url
+    单次最多 5 个 file_token；需 docs:document.media:download 等权限。
+    返回 file_token -> tmp_download_url。
+    """
+    out: dict[str, str] = {}
+    if not file_tokens:
+        return out
+    token = _get_tenant_access_token()
+    if not token:
+        logger.warning("batch_get_media_tmp_download_urls: no tenant_access_token")
+        return out
+    base = (FEISHU_DOMAIN or "https://open.feishu.cn").rstrip("/") + "/open-apis/drive/v1/medias/batch_get_tmp_download_url"
+    try:
+        for i in range(0, len(file_tokens), 5):
+            batch = [t for t in file_tokens[i : i + 5] if t]
+            if not batch:
+                continue
+            params = [("file_tokens", t) for t in batch]
+            r = requests.get(
+                base,
+                headers={"Authorization": f"Bearer {token}"},
+                params=params,
+                timeout=45,
+            )
+            body = r.json() if r.text else {}
+            if r.status_code != 200 or body.get("code") not in (0, None):
+                logger.warning(
+                    "batch_get_media_tmp_download_urls failed: status=%s code=%s msg=%s",
+                    r.status_code,
+                    body.get("code"),
+                    (body.get("msg") or "")[:200],
+                )
+                continue
+            data = body.get("data") or {}
+            for item in data.get("tmp_download_urls") or []:
+                if not isinstance(item, dict):
+                    continue
+                ft = item.get("file_token")
+                u = item.get("tmp_download_url")
+                if ft and u:
+                    out[str(ft)] = str(u)
+    except Exception as e:
+        logger.exception("batch_get_media_tmp_download_urls error: %s", e)
+    return out
+
+
+def download_http_bytes(url: str, *, timeout: int = 60) -> bytes | None:
+    """GET 任意临时 URL，返回二进制（用于素材下载链接）。"""
+    if not url:
+        return None
+    try:
+        r = requests.get(url, timeout=timeout)
+        if r.status_code != 200:
+            logger.warning("download_http_bytes: status=%s url=%s...", r.status_code, url[:80])
+            return None
+        return r.content if r.content else None
+    except Exception as e:
+        logger.exception("download_http_bytes error: %s", e)
+        return None
+
+
 def search_doc_wiki(query: str, page_size: int = 10) -> tuple[list[dict], str | None]:
     """
     调用飞书开放平台「搜索文档与知识库」接口（search v2 doc_wiki/search），

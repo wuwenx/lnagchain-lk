@@ -41,6 +41,37 @@ OPENAI_API_KEY = _str("OPENAI_API_KEY")
 OPENAI_API_BASE = _str("OPENAI_API_BASE", "https://api.openai.com/v1")
 # 模型名，如 gpt-4o-mini、deepseek-chat、deepseek-reasoner
 OPENAI_MODEL = _str("OPENAI_MODEL", "gpt-4o-mini")
+# 图片理解（多模态）：不填则与 OPENAI_MODEL 相同；需选用支持 vision 的模型（如 gpt-4o、gpt-4o-mini）
+OPENAI_VISION_MODEL = _str("OPENAI_VISION_MODEL", "").strip() or None
+# 每条飞书消息最多处理几张图、单张最大字节（避免爆 token）
+try:
+    _vim = int(os.environ.get("VISION_MAX_IMAGES", "3") or "3")
+except (TypeError, ValueError):
+    _vim = 3
+VISION_MAX_IMAGES = max(1, min(8, _vim))
+try:
+    _vmb = int(os.environ.get("VISION_MAX_IMAGE_BYTES", str(4 * 1024 * 1024)) or str(4 * 1024 * 1024))
+except (TypeError, ValueError):
+    _vmb = 4 * 1024 * 1024
+VISION_MAX_IMAGE_BYTES = max(512 * 1024, min(20 * 1024 * 1024, _vmb))
+# 拉取飞书 docx 内嵌图片并随上下文送入多模态模型（需 docs:document.media:download 等权限）
+FEISHU_DOC_FETCH_IMAGES = _str("FEISHU_DOC_FETCH_IMAGES", "true").lower() in ("1", "true", "yes", "on")
+try:
+    _dm = int(os.environ.get("DOCX_MAX_IMAGES", "12") or "12")
+except (TypeError, ValueError):
+    _dm = 12
+DOCX_MAX_IMAGES = max(0, min(30, _dm))
+# 是否向 LLM 发送 OpenAI 风格多模态（content 中含 image_url）。DeepSeek 等仅支持 text，默认对 deepseek 域名自动关闭。
+_VISION_MM = _str("VISION_MULTIMODAL", "").strip().lower()
+if _VISION_MM in ("1", "true", "yes", "on"):
+    VISION_MULTIMODAL = True
+elif _VISION_MM in ("0", "false", "no", "off"):
+    VISION_MULTIMODAL = False
+else:
+    _api_base_lower = (OPENAI_API_BASE or "").lower()
+    VISION_MULTIMODAL = not any(
+        h in _api_base_lower for h in ("deepseek.com", "api.deepseek")
+    )
 
 # CoinMarketCap API（/rank skill 交易所排名，可选）
 CMC_API_KEY = _str("CMC_API_KEY")

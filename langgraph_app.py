@@ -25,6 +25,8 @@ class ChatState(TypedDict, total=False):
     history: list[BaseMessage]
     reply_text: str
     reply_card: dict | None
+    # 飞书下载的图片二进制；仅 agent 节点传给多模态模型，fetch/skill 忽略
+    image_bytes_list: list[bytes] | None
 
 
 def _get_skill_by_id(skill_id: str):
@@ -84,6 +86,7 @@ def _agent_node(state: ChatState) -> ChatState:
         text,
         history=history,
         document_context=doc or None,
+        image_bytes_list=state.get("image_bytes_list"),
     )
     return {
         **state,
@@ -138,16 +141,19 @@ def run(
     document_context: str = "",
     chat_id: str = "",
     history: list[BaseMessage] | None = None,
+    image_bytes_list: list[bytes] | None = None,
 ) -> tuple[str, dict | None]:
     """
     执行图，返回 (reply_text, reply_card)。
     与原有 handle_message 对接：传入 user_message、document_context、chat_id、history。
+    image_bytes_list：可选，飞书消息中的图片，供默认对话路径多模态识别。
     """
     initial: ChatState = {
         "user_message": user_message,
         "document_context": document_context or "",
         "chat_id": chat_id,
         "history": list(history or []),
+        "image_bytes_list": image_bytes_list,
     }
     g = get_graph()
     final = g.invoke(initial)

@@ -6,6 +6,7 @@
 
 - **Webhook 模式**：在 Lark 后台配置「请求地址」，事件推送到你的 HTTP 服务（需公网 URL，如 ngrok）
 - **文本消息**：用户发文本 → AI 回复
+- **图片消息（截图识别）**：用户在会话中发送图片（含纯图、或「文字+图」），机器人通过飞书「获取消息中的资源文件」下载图片，再以**支持多模态**的模型识别内容并回复（需应用开通消息资源相关权限，如 `im:resource`；建议在 `.env` 配置 `OPENAI_VISION_MODEL` 为支持 vision 的模型，与纯文本模型可分开）
 - **读飞书文档**：用户消息中含飞书文档链接（`feishu.cn/docx/xxx` 或 `larksuite.com/docx/xxx`）或**知识库链接**（`.../wiki/xxx`）时，自动拉取正文并作为上下文交给 AI 回答
 - **网页抓取**：消息中同时包含「获取」或「抓取」且包含一个网址时，用 **Playwright** 抓取页面正文，再由大模型总结/分析并回复到 Lark（需安装 `playwright` 并执行 `playwright install chromium`）
 - **直接创建 Lark 文档**：说「新建 lark 文档」「帮我新建一个 xxx 文档」或发 `/新建文档` 时，机器人会**直接调用飞书 API 创建云文档**并返回链接（需应用有云文档创建权限；可选配置 `FEISHU_DOC_BASE_URL` 以返回可点击链接）
@@ -31,7 +32,7 @@
 ## 飞书/Lark 应用配置
 
 1. 打开 [飞书开放平台](https://open.feishu.cn/app) 或 [Lark 开发者后台](https://open.larksuite.com)，创建**企业自建应用**
-2. **权限**：开启 `im:message`、`im:message.group_at_msg`、`im:resource`、`contact:user.id:readonly`；**若需机器人读飞书文档**，再开启 `docx:document`；**若需读知识库（Wiki）链接**，再开启 `wiki:wiki` 或 `wiki:wiki.readonly`；**若需机器人直接创建云文档**，需确保应用有云文档创建/写入权限（以飞书/ Lark 文档为准）
+2. **权限**：开启 `im:message`、`im:message.group_at_msg`、`im:resource`、`contact:user.id:readonly`；**若需机器人读飞书文档**，再开启 `docx:document`；**若需读知识库（Wiki）链接**，再开启 `wiki:wiki` 或 `wiki:wiki.readonly`；**若需机器人直接创建云文档**，需确保应用有云文档创建/写入权限（以飞书/ Lark 文档为准）；**若需识别云文档内截图/内嵌图并送入多模态模型**，再开启 **下载云文档中的图片和附件**（`docs:document.media:download` 等，以开放平台权限名为准）
 3. **事件配置**：选择 **将事件发送至开发者服务器**，**请求地址**填你的公网 URL（见下方「Webhook 模式」）
 4. 在应用凭证页复制 **App ID**、**App Secret**；在事件配置页复制 **Verification Token**（若开启加密则还有 **Encrypt Key**）
 
@@ -105,6 +106,12 @@ cp .env.example .env
 | `OPENAI_API_KEY` | 是 | LLM API Key（OpenAI、DeepSeek 或兼容服务） |
 | `OPENAI_API_BASE` | 否 | API 地址，默认 `https://api.openai.com/v1`；DeepSeek 填 `https://api.deepseek.com/v1` |
 | `OPENAI_MODEL` | 否 | 模型名，默认 `gpt-4o-mini`；DeepSeek 可用 `deepseek-chat`、`deepseek-reasoner` 等 |
+| `OPENAI_VISION_MODEL` | 否 | 含**图片**时的多模态模型；不填则与 `OPENAI_MODEL` 相同（需 API 支持 vision） |
+| `VISION_MULTIMODAL` | 否 | 是否发送含 `image_url` 的多模态请求。留空则**自动**：`OPENAI_API_BASE` 含 `deepseek` 时为 `false`（避免 400）；设为 `true` 时需接口真支持 vision |
+| `VISION_MAX_IMAGES` | 否 | 每条消息最多处理几张图，默认 `3` |
+| `VISION_MAX_IMAGE_BYTES` | 否 | 单张图最大字节，默认 `4194304`（4MB） |
+| `FEISHU_DOC_FETCH_IMAGES` | 否 | 是否拉取 **飞书 docx 内嵌图片** 与正文一并送多模态模型，默认 `true` |
+| `DOCX_MAX_IMAGES` | 否 | 每条用户消息从文档中最多拉几张内嵌图（与聊天发图共享 `VISION_MAX_IMAGES` 总上限），默认 `12` |
 | `FEISHU_GROUP_ACCESS` | 否 | 群聊模式：`open`（默认）/ `allowlist` / `disabled` |
 | `FEISHU_DOMAIN` | 否 | 国际版 Lark 填 `https://open.larksuite.com`，国内飞书默认 `https://open.feishu.cn` |
 | `FEISHU_DOC_BASE_URL` | 否 | 创建文档后返回的可点击链接根地址，如 `https://你的企业.larksuite.com`，不设则只返回 document_id |
