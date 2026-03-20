@@ -125,6 +125,12 @@ FEISHU_CODE_AGENT_CHAT_ID = _str("FEISHU_CODE_AGENT_CHAT_ID", "oc_26bb8b21a07f1b
 # 代码助手操作目录：读/写/替换/执行命令均基于此目录；不设则使用本项目根目录
 CODE_WORKSPACE_ROOT = _str("CODE_WORKSPACE_ROOT", "/Users/wuwenxiang/wuwx/mm-admin").strip() or None
 
+# Apifox 开放 API：用于「生成前端」时拉取接口文档（OpenAPI）
+APIFOX_ACCESS_TOKEN = _str("APIFOX_ACCESS_TOKEN", "")
+APIFOX_PROJECT_ID = _str("APIFOX_PROJECT_ID", "")
+APIFOX_MODULE_ID = _str("APIFOX_MODULE_ID", "").strip() or None  # 可选，不设则导出默认模块
+APIFOX_API_BASE = _str("APIFOX_API_BASE", "https://api.apifox.com").rstrip("/")
+
 
 def validate_config() -> list[str]:
     """校验必填配置，返回错误信息列表。"""

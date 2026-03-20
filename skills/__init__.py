@@ -81,6 +81,7 @@ def _register_builtin_skills() -> None:
     from skills.btc import btc_skill
     from skills.code_agent_skill import code_agent_skill
     from skills.fetch import fetch_skill
+    from skills.gen_frontend_skill import gen_frontend_skill
     from skills.funding_compare import funding_compare_skill
     from skills.funding_rate import funding_rate_skill
     from skills.help import help_skill
@@ -101,6 +102,9 @@ def _register_builtin_skills() -> None:
     register(liquidity_depth_skill)
     register(jks_skill)
     register(code_agent_skill)
+    register(gen_frontend_skill)
+    # 生成前端：消息中包含「生成前端」或「根据文档生成前端」时走 skill
+    _KEYWORD_SKILLS.append((gen_frontend_skill, ["生成前端", "/生成前端", "根据文档生成前端"]))
     # 代码修改：消息中包含 /code 或「代码修改」「改代码」时也走 skill（不要求句首）
     _KEYWORD_SKILLS.append((code_agent_skill, ["/code", "代码修改", "改代码"]))
     # 流动性深度：消息中包含以下关键词时也走 skill，不依赖模型 tool_calls（兼容 jeniya 等中转）

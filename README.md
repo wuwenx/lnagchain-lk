@@ -18,6 +18,7 @@
 - **文档/知识库搜索**：发 `/search 关键词` 或「搜索 xxx」时，调用飞书开放平台 [search v2 doc_wiki](https://open.larksuite.com/document/uAjLw4CM/ukTMukTMukTM/search-v2/doc_wiki/search) 搜索企业内文档与知识库，再由大模型总结汇总；需应用具备文档与知识库读权限
 - **可扩展**：可在此项目上增加 RAG、Agent+Tools 等
 - **本地代码助手**：基于 LangGraph ReAct 智能体，提供读/写/精准替换/执行命令等工具，实现类似 OpenClaude/Cline 的本地代码修改能力（见「本地代码助手」小节）
+- **生成前端**：在指定群发「生成前端」并附带飞书需求文档链接，自动拉取 Lark 文档 + Apifox 接口文档（开放 API），由代码助手生成路由、菜单、页面并写入 `CODE_WORKSPACE_ROOT`（需配置 Apifox 令牌与项目 ID）
 
 ## 环境要求
 
@@ -78,6 +79,16 @@ cp .env.example .env
 
 工具包括：`read_local_file`、`write_local_file`、`replace_code_block`（精准替换，适合大文件）、`run_command`（执行 shell 命令如 pytest）。工作区目录由 `CODE_WORKSPACE_ROOT` 配置（默认 `mm-admin` 项目路径），可在 `.env` 中修改。
 
+### 生成前端（Lark 需求 + Apifox 接口文档）
+
+在**与 /code 相同的白名单群**内，发送「生成前端」并附带**飞书文档链接**（需求文档），机器人会：
+
+1. 拉取该飞书文档正文作为需求说明  
+2. 通过 Apifox 开放 API 导出当前项目的 OpenAPI 规范  
+3. 将「需求 + 接口文档」交给代码助手，在工作区中生成或补充路由、菜单、页面
+
+需在 `.env` 配置 `APIFOX_ACCESS_TOKEN`、`APIFOX_PROJECT_ID`（可选 `APIFOX_MODULE_ID`）。示例消息：`生成前端 https://xxx.feishu.cn/docx/xxxxx`。
+
 ## 配置说明（.env）
 
 | 变量 | 必填 | 说明 |
@@ -97,8 +108,12 @@ cp .env.example .env
 | `FEISHU_PIPELINE_STAGE_A_CHAT_ID` | 否 | 多群流水线 A 群（需求分析）chat_id，不填则不启用流水线 |
 | `FEISHU_PIPELINE_STAGE_B_CHAT_ID` | 否 | 多群流水线 B 群（方案生成）chat_id |
 | `FEISHU_PIPELINE_STAGE_C_CHAT_ID` | 否 | 多群流水线 C 群（总结输出）chat_id |
-| `FEISHU_CODE_AGENT_CHAT_ID` | 否 | 代码修改（/code）仅在此群可触发，不填则不在 Lark 开放该功能 |
+| `FEISHU_CODE_AGENT_CHAT_ID` | 否 | 代码修改（/code）与「生成前端」仅在此群可触发，不填则不在 Lark 开放该功能 |
 | `CODE_WORKSPACE_ROOT` | 否 | 代码助手操作目录（读/写/替换/执行命令均基于此目录），不设则使用本项目根目录，默认 `mm-admin` 路径 |
+| `APIFOX_ACCESS_TOKEN` | 生成前端必填 | Apifox 开放 API 系统级访问令牌 |
+| `APIFOX_PROJECT_ID` | 生成前端必填 | Apifox 项目 ID（导出 OpenAPI 用） |
+| `APIFOX_MODULE_ID` | 否 | Apifox 模块 ID，不填则导出默认模块 |
+| `APIFOX_API_BASE` | 否 | Apifox API 根地址，默认 `https://api.apifox.com` |
 
 ## 项目结构
 
@@ -112,7 +127,7 @@ lnagchain-lk/
 ├── lark_client.py       # 飞书 HTTP 客户端与发送消息
 ├── langchain_agent.py   # LangChain 对话链（可改为 Agent/RAG）
 ├── code_agent.py        # 本地代码修改助手（LangGraph ReAct + 文件/命令工具）
-├── tools/               # LangChain 工具：资金费率、流动性深度、code_tools（读/写/替换/执行）
+├── tools/               # LangChain 工具：资金费率、流动性深度、code_tools、apifox_client（导出 OpenAPI）
 ├── config.py            # 配置加载与校验
 ├── requirements.txt
 ├── .env.example
