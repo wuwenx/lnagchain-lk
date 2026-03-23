@@ -1,5 +1,5 @@
 """
-配置：从环境变量加载飞书与 LLM 配置
+配置：飞书等从 .env / 环境变量读取；**LLM 模型相关项仅从项目根目录 config.json 读取**（不走 .env）。
 """
 import json
 import os
@@ -11,9 +11,151 @@ from dotenv import load_dotenv
 _env_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path=_env_path)
 
+# 运行时 JSON（与 .env 并存；模型等可被管理页覆盖）
+PROJECT_ROOT = Path(__file__).resolve().parent
+CONFIG_JSON_PATH = PROJECT_ROOT / "config.json"
+
 
 def _str(key: str, default: str = "") -> str:
     return os.environ.get(key, default).strip()
+
+
+def _load_config_json() -> dict:
+    try:
+        if CONFIG_JSON_PATH.is_file():
+            with open(CONFIG_JSON_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return {}
+
+
+_RUNTIME_CONFIG: dict = _load_config_json()
+
+
+def _json_only_str(key: str) -> str:
+    """仅从 config.json 读取（键不存在则为空字符串）。"""
+    if key not in _RUNTIME_CONFIG:
+        return ""
+    rv = _RUNTIME_CONFIG[key]
+    if rv is None:
+        return ""
+    return str(rv).strip()
+
+
+def _json_only_bool(key: str, default: bool = False) -> bool:
+    """仅从 config.json 读取布尔；键不存在用 default。"""
+    if key not in _RUNTIME_CONFIG:
+        return default
+    v = _RUNTIME_CONFIG[key]
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().lower()
+    if s in ("1", "true", "yes", "on"):
+        return True
+    if s in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
+def _load_llm_from_runtime() -> tuple[str, str, str, str, str, str, bool]:
+    """
+    从 config.json 加载 LLM 配置（不使用 .env）：
+    文本：OPENAI_API_BASE, OPENAI_API_KEY, OPENAI_MODEL
+    多模态：VISION_OPENAI_API_BASE, VISION_OPENAI_API_KEY, VISION_OPENAI_MODEL
+    兼容旧键 OPENAI_VISION_MODEL → 仅当 VISION_OPENAI_MODEL 为空时作为模型名回退
+    """
+    api_base = _json_only_str("OPENAI_API_BASE")
+    api_key = _json_only_str("OPENAI_API_KEY")
+    model = _json_only_str("OPENAI_MODEL")
+    v_base = _json_only_str("VISION_OPENAI_API_BASE")
+    v_key = _json_only_str("VISION_OPENAI_API_KEY")
+    v_model = _json_only_str("VISION_OPENAI_MODEL")
+    if not v_model:
+        v_model = _json_only_str("OPENAI_VISION_MODEL")
+    vision_mm = _json_only_bool("VISION_MULTIMODAL", False)
+    return api_base, api_key, model, v_base, v_key, v_model, vision_mm
+
+
+def llm_text_config_ready() -> bool:
+    return bool(OPENAI_API_BASE and OPENAI_API_KEY and OPENAI_MODEL)
+
+
+def llm_vision_config_ready() -> bool:
+    return bool(
+        VISION_MULTIMODAL
+        and VISION_OPENAI_API_BASE
+        and VISION_OPENAI_API_KEY
+        and VISION_OPENAI_MODEL
+    )
+
+
+def format_llm_text_config_missing_message() -> str | None:
+    if llm_text_config_ready():
+        return None
+    p = CONFIG_JSON_PATH.resolve()
+    return (
+        f"❌ LLM 文本模型未配置完整。请在项目根目录编辑 **{p}**（可复制 **config.example.json**），"
+        f"填写 **OPENAI_API_BASE**、**OPENAI_API_KEY**、**OPENAI_MODEL**。\n"
+        f"说明：**模型相关配置仅从该文件读取，不使用 .env**。"
+    )
+
+
+def format_llm_vision_config_missing_message() -> str | None:
+    """开启多模态但多模态三套未配齐时返回提示。"""
+    if not VISION_MULTIMODAL:
+        return None
+    if llm_vision_config_ready():
+        return None
+    p = CONFIG_JSON_PATH.resolve()
+    return (
+        f"❌ 已开启 **VISION_MULTIMODAL**，但多模态接口未配置完整。请在 **{p}** 填写 "
+        f"**VISION_OPENAI_API_BASE**、**VISION_OPENAI_API_KEY**、**VISION_OPENAI_MODEL**。\n"
+        f"读取飞书/Lark 截图或图片时将**仅使用多模态配置**，**不再使用文本模型的 OPENAI_MODEL**。"
+    )
+
+
+def reload_runtime_config() -> None:
+    """重新读取 config.json 并更新 LLM 相关模块变量与 os.environ（便于观测）。"""
+    global _RUNTIME_CONFIG
+    global OPENAI_API_BASE, OPENAI_API_KEY, OPENAI_MODEL
+    global VISION_OPENAI_API_BASE, VISION_OPENAI_API_KEY, VISION_OPENAI_MODEL, VISION_MULTIMODAL
+    _RUNTIME_CONFIG = _load_config_json()
+    (
+        OPENAI_API_BASE,
+        OPENAI_API_KEY,
+        OPENAI_MODEL,
+        VISION_OPENAI_API_BASE,
+        VISION_OPENAI_API_KEY,
+        VISION_OPENAI_MODEL,
+        VISION_MULTIMODAL,
+    ) = _load_llm_from_runtime()
+    os.environ["OPENAI_API_BASE"] = OPENAI_API_BASE
+    os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+    os.environ["OPENAI_MODEL"] = OPENAI_MODEL
+    os.environ["VISION_OPENAI_API_BASE"] = VISION_OPENAI_API_BASE
+    os.environ["VISION_OPENAI_API_KEY"] = VISION_OPENAI_API_KEY
+    os.environ["VISION_OPENAI_MODEL"] = VISION_OPENAI_MODEL
+    os.environ["VISION_MULTIMODAL"] = "true" if VISION_MULTIMODAL else "false"
+    os.environ.pop("OPENAI_VISION_MODEL", None)
+
+
+def update_runtime_config_file(updates: dict) -> None:
+    """合并写入 config.json 并 reload（供管理页等调用）。值可为 str / bool。"""
+    data = _load_config_json()
+    for k, v in updates.items():
+        data[k] = v
+    CONFIG_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_JSON_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    reload_runtime_config()
+    # 清空单例链，使下次 get_chain() 使用新模型
+    try:
+        import langchain_agent as _la
+
+        _la._chain = None
+    except Exception:
+        pass
 
 
 # 飞书
@@ -36,13 +178,24 @@ WEBHOOK_PATH = _str("WEBHOOK_PATH", "/")
 # 卡片内「打开链接」类按钮使用的基础 URL（如下载 Excel），需公网可访问，不设则不显示下载按钮
 PUBLIC_BASE_URL = _str("PUBLIC_BASE_URL", "").rstrip("/")
 
-# LLM（OpenAI 兼容：OpenAI / DeepSeek / 国内中转等）
-OPENAI_API_KEY = _str("OPENAI_API_KEY")
-OPENAI_API_BASE = _str("OPENAI_API_BASE", "https://api.openai.com/v1")
-# 模型名，如 gpt-4o-mini、deepseek-chat、deepseek-reasoner
-OPENAI_MODEL = _str("OPENAI_MODEL", "gpt-4o-mini")
-# 图片理解（多模态）：不填则与 OPENAI_MODEL 相同；需选用支持 vision 的模型（如 gpt-4o、gpt-4o-mini）
-OPENAI_VISION_MODEL = _str("OPENAI_VISION_MODEL", "").strip() or None
+# LLM（OpenAI 兼容）：**仅从 config.json 读取**，见 _load_llm_from_runtime
+(
+    OPENAI_API_BASE,
+    OPENAI_API_KEY,
+    OPENAI_MODEL,
+    VISION_OPENAI_API_BASE,
+    VISION_OPENAI_API_KEY,
+    VISION_OPENAI_MODEL,
+    VISION_MULTIMODAL,
+) = _load_llm_from_runtime()
+os.environ["OPENAI_API_BASE"] = OPENAI_API_BASE
+os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+os.environ["OPENAI_MODEL"] = OPENAI_MODEL
+os.environ["VISION_OPENAI_API_BASE"] = VISION_OPENAI_API_BASE
+os.environ["VISION_OPENAI_API_KEY"] = VISION_OPENAI_API_KEY
+os.environ["VISION_OPENAI_MODEL"] = VISION_OPENAI_MODEL
+os.environ["VISION_MULTIMODAL"] = "true" if VISION_MULTIMODAL else "false"
+os.environ.pop("OPENAI_VISION_MODEL", None)
 # 每条飞书消息最多处理几张图、单张最大字节（避免爆 token）
 try:
     _vim = int(os.environ.get("VISION_MAX_IMAGES", "3") or "3")
@@ -61,18 +214,6 @@ try:
 except (TypeError, ValueError):
     _dm = 12
 DOCX_MAX_IMAGES = max(0, min(30, _dm))
-# 是否向 LLM 发送 OpenAI 风格多模态（content 中含 image_url）。DeepSeek 等仅支持 text，默认对 deepseek 域名自动关闭。
-_VISION_MM = _str("VISION_MULTIMODAL", "").strip().lower()
-if _VISION_MM in ("1", "true", "yes", "on"):
-    VISION_MULTIMODAL = True
-elif _VISION_MM in ("0", "false", "no", "off"):
-    VISION_MULTIMODAL = False
-else:
-    _api_base_lower = (OPENAI_API_BASE or "").lower()
-    VISION_MULTIMODAL = not any(
-        h in _api_base_lower for h in ("deepseek.com", "api.deepseek")
-    )
-
 # CoinMarketCap API（/rank skill 交易所排名，可选）
 CMC_API_KEY = _str("CMC_API_KEY")
 
@@ -180,8 +321,11 @@ def validate_config() -> list[str]:
     errors = []
     if not FEISHU_APP_ID or not FEISHU_APP_SECRET:
         errors.append("请设置 FEISHU_APP_ID 和 FEISHU_APP_SECRET（.env 或环境变量）")
-    if not OPENAI_API_KEY:
-        errors.append("请设置 OPENAI_API_KEY")
+    if not llm_text_config_ready():
+        errors.append(
+            f"请在 {CONFIG_JSON_PATH.resolve()} 配置 OPENAI_API_BASE、OPENAI_API_KEY、OPENAI_MODEL"
+            f"（模型相关仅从该文件读取，不使用 .env）。可复制 config.example.json。"
+        )
     return errors
 
 

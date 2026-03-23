@@ -419,7 +419,7 @@ def _build_log_card(rows: list[dict], analysis: str = "") -> dict:
     else:
         elements.append({
             "tag": "div",
-            "text": {"tag": "plain_text", "content": "（未生成 AI 分析，请检查 OPENAI_API_KEY 或稍后重试）", "lines": 1},
+            "text": {"tag": "plain_text", "content": "（未生成 AI 分析，请检查 config.json 中的 OPENAI_API_KEY 或稍后重试）", "lines": 1},
         })
     elements.append({"tag": "hr"})
     elements.append({

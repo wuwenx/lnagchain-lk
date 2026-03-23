@@ -14,7 +14,8 @@ from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
-from config import CODE_WORKSPACE_ROOT, OPENAI_API_BASE, OPENAI_API_KEY, OPENAI_MODEL
+import config
+from config import CODE_WORKSPACE_ROOT, CONFIG_JSON_PATH, OPENAI_API_BASE, OPENAI_API_KEY
 from tools.code_tools import get_code_tools
 
 # 工作区根目录（与 code_tools 一致，用于系统提示）
@@ -35,7 +36,7 @@ CODE_AGENT_SYSTEM = f"""你是一个高级本地 AI 编程助手，工作区根�
 
 def _get_agent():
     llm = ChatOpenAI(
-        model=OPENAI_MODEL or "gpt-4o-mini",
+        model=config.OPENAI_MODEL or "gpt-4o-mini",
         api_key=OPENAI_API_KEY,
         base_url=OPENAI_API_BASE or None,
         temperature=0,
@@ -103,7 +104,10 @@ def _run_stream(user_input: str) -> str:
 
 def main():
     if not OPENAI_API_KEY:
-        print("请设置 OPENAI_API_KEY（.env 或环境变量）后再运行。", file=sys.stderr)
+        print(
+            f"请在项目根目录 {CONFIG_JSON_PATH.resolve()} 配置 OPENAI_API_KEY（模型相关仅从 config.json 读取）。",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     if len(sys.argv) > 1:

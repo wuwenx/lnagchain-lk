@@ -6,7 +6,7 @@
 
 - **Webhook 模式**：在 Lark 后台配置「请求地址」，事件推送到你的 HTTP 服务（需公网 URL，如 ngrok）
 - **文本消息**：用户发文本 → AI 回复
-- **图片消息（截图识别）**：用户在会话中发送图片（含纯图、或「文字+图」），机器人通过飞书「获取消息中的资源文件」下载图片，再以**支持多模态**的模型识别内容并回复（需应用开通消息资源相关权限，如 `im:resource`；建议在 `.env` 配置 `OPENAI_VISION_MODEL` 为支持 vision 的模型，与纯文本模型可分开）
+- **图片消息（截图识别）**：用户在会话中发送图片（含纯图、或「文字+图」），机器人通过飞书「获取消息中的资源文件」下载图片，再以**支持多模态**的模型识别内容并回复（需应用开通消息资源相关权限，如 `im:resource`）。需在项目根 **`config.json`** 开启 **`VISION_MULTIMODAL`** 并填写 **`VISION_OPENAI_API_*`** 三套；含图请求仅走多模态配置，不使用文本 `OPENAI_MODEL`
 - **读飞书文档**：用户消息中含飞书文档链接（`feishu.cn/docx/xxx` 或 `larksuite.com/docx/xxx`）或**知识库链接**（`.../wiki/xxx`）时，自动拉取正文并作为上下文交给 AI 回答
 - **网页抓取**：消息中同时包含「获取」或「抓取」且包含一个网址时，用 **Playwright** 抓取页面正文，再由大模型总结/分析并回复到 Lark（需安装 `playwright` 并执行 `playwright install chromium`）
 - **直接创建 Lark 文档**：说「新建 lark 文档」「帮我新建一个 xxx 文档」或发 `/新建文档` 时，机器人会**直接调用飞书 API 创建云文档**并返回链接（需应用有云文档创建权限；可选配置 `FEISHU_DOC_BASE_URL` 以返回可点击链接）
@@ -47,7 +47,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# 编辑 .env：FEISHU_APP_ID、FEISHU_APP_SECRET、FEISHU_VERIFICATION_TOKEN、OPENAI_API_KEY 等
+cp config.example.json config.json
+# 编辑 .env：FEISHU_APP_ID、FEISHU_APP_SECRET、FEISHU_VERIFICATION_TOKEN 等
+# 编辑 config.json：OPENAI_API_BASE、OPENAI_API_KEY、OPENAI_MODEL（LLM 模型仅从该文件读取）
 # 若使用网页抓取（在 Lark 发「获取」/「抓取」+ 网址）：需安装 Chromium
 # .venv/bin/playwright install chromium
 ```
@@ -70,7 +72,7 @@ cp .env.example .env
 
 ### 本地代码助手（Code Agent）
 
-在项目根目录下运行，让 AI 查看和修改本地代码（需已配置 `OPENAI_API_KEY`）。**使用前请确保代码已提交到 Git。**
+在项目根目录下运行，让 AI 查看和修改本地代码（需已在 **`config.json`** 配置 `OPENAI_API_KEY` 等）。**使用前请确保代码已提交到 Git。**
 
 ```bash
 # 单条指令
@@ -107,6 +109,22 @@ cp .env.example .env
 
 与「生成前端」共用同一套 Apifox 配置。发 **`/api 帮助`** 查看完整用法。典型用法：`/api`（默认/配置的模块）、`/api 关键词`（按 Apifox 目录写入的 tag、路径或摘要筛选）、`/api 123`（数字为项目内模块 ID）。若需在对话里用中文切换模块，可在 `.env` 设置 **`APIFOX_MODULE_MAP`**（JSON，如 `{"做市":123}`）。
 
+## LLM（项目根 `config.json`）
+
+文本与多模态模型相关**仅从该文件读取**，不使用 `.env`。可复制 `config.example.json` 为 `config.json` 后填写。
+
+| 键 | 说明 |
+|------|------|
+| `OPENAI_API_BASE` | OpenAI 兼容 API 地址，如 `https://api.openai.com/v1`、`https://api.deepseek.com/v1` |
+| `OPENAI_API_KEY` | API Key |
+| `OPENAI_MODEL` | 文本对话模型名 |
+| `VISION_MULTIMODAL` | `true` / `false`：是否处理 Lark 截图/图片；为 `true` 且含图时**仅使用**下方多模态三项，**不使用** `OPENAI_MODEL` |
+| `VISION_OPENAI_API_BASE` | 多模态接口地址（可与文本相同或单独端点） |
+| `VISION_OPENAI_API_KEY` | 多模态 API Key |
+| `VISION_OPENAI_MODEL` | 多模态模型名（如 `gpt-4o`）。兼容：若为空可暂用旧键 `OPENAI_VISION_MODEL` **仅作模型名**回退 |
+
+Webhook 部署时也可用浏览器打开 **`/admin/model`**（建议配置 `ADMIN_PAGE_TOKEN`）可视化管理上述项。
+
 ## 配置说明（.env）
 
 | 变量 | 必填 | 说明 |
@@ -115,11 +133,6 @@ cp .env.example .env
 | `FEISHU_APP_SECRET` | 是 | 飞书应用 App Secret |
 | `FEISHU_VERIFICATION_TOKEN` | Webhook 必填 | 事件配置里的 Verification Token |
 | `FEISHU_ENCRYPT_KEY` | 加密时必填 | 事件配置里开启加密时的 Encrypt Key |
-| `OPENAI_API_KEY` | 是 | LLM API Key（OpenAI、DeepSeek 或兼容服务） |
-| `OPENAI_API_BASE` | 否 | API 地址，默认 `https://api.openai.com/v1`；DeepSeek 填 `https://api.deepseek.com/v1` |
-| `OPENAI_MODEL` | 否 | 模型名，默认 `gpt-4o-mini`；DeepSeek 可用 `deepseek-chat`、`deepseek-reasoner` 等 |
-| `OPENAI_VISION_MODEL` | 否 | 含**图片**时的多模态模型；不填则与 `OPENAI_MODEL` 相同（需 API 支持 vision） |
-| `VISION_MULTIMODAL` | 否 | 是否发送含 `image_url` 的多模态请求。留空则**自动**：`OPENAI_API_BASE` 含 `deepseek` 时为 `false`（避免 400）；设为 `true` 时需接口真支持 vision |
 | `VISION_MAX_IMAGES` | 否 | 每条消息最多处理几张图，默认 `3` |
 | `VISION_MAX_IMAGE_BYTES` | 否 | 单张图最大字节，默认 `4194304`（4MB） |
 | `FEISHU_DOC_FETCH_IMAGES` | 否 | 是否拉取 **飞书 docx 内嵌图片** 与正文一并送多模态模型，默认 `true` |

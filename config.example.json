@@ -1,0 +1,9 @@
+{
+  "OPENAI_API_BASE": "https://api.openai.com/v1",
+  "OPENAI_API_KEY": "",
+  "OPENAI_MODEL": "gpt-4o-mini",
+  "VISION_MULTIMODAL": false,
+  "VISION_OPENAI_API_BASE": "",
+  "VISION_OPENAI_API_KEY": "",
+  "VISION_OPENAI_MODEL": ""
+}

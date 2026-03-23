@@ -8,6 +8,8 @@ node_modules
 dist
 .vscode
 .env
+# 本地/管理页写入的运行时配置（可复制 config.example.json 为 config.json）
+config.json
 .serena
 .venv
 .DS_Store
