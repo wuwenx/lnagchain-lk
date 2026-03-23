@@ -88,6 +88,7 @@ def _register_builtin_skills() -> None:
     from skills.help import help_skill
     from skills.jks import jks_skill
     from skills.liquidity_depth import liquidity_depth_skill
+    from skills.metabase_page_skill import metabase_page_skill
     from skills.new_doc import new_doc_skill
     from skills.rank import rank_skill
     from skills.search_doc import search_doc_skill
@@ -104,6 +105,7 @@ def _register_builtin_skills() -> None:
     register(liquidity_depth_skill)
     register(jks_skill)
     register(code_agent_skill)
+    register(metabase_page_skill)
     register(gen_frontend_skill)
     # 生成前端：消息中包含「生成前端」或「根据文档生成前端」时走 skill
     _KEYWORD_SKILLS.append((gen_frontend_skill, ["生成前端", "/生成前端", "根据文档生成前端"]))

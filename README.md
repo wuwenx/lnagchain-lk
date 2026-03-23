@@ -20,6 +20,7 @@
 - **可扩展**：可在此项目上增加 RAG、Agent+Tools 等
 - **本地代码助手**：基于 LangGraph ReAct 智能体，提供读/写/精准替换/执行命令等工具，实现类似 OpenClaude/Cline 的本地代码修改能力（见「本地代码助手」小节）
 - **生成前端**：在指定群发「生成前端」并附带飞书需求文档链接，自动拉取 Lark 文档 + Apifox 接口文档（开放 API），由代码助手生成路由、菜单、页面并写入 `CODE_WORKSPACE_ROOT`（需配置 Apifox 令牌与项目 ID）
+- **Metabase 看板页**：在与 `/code` 相同白名单群发 `/metabase <slug> <DashboardID> <现货|合约>`（或 `id <ID> <slug> …`），按固定流程在 `CODE_WORKSPACE_ROOT`（如 mm-admin）中增 `metabase.js`、新建 `pages/metabase/<slug>.vue`、改侧栏导航；流程全文见本仓库 `docs/metabase-add-page.md`，亦可放在工作区 `docs/` 下或配置 `METABASE_ADD_PAGE_DOC_PATH`
 - **Apifox 接口查询**：发 `/api` 或 `/api 帮助` 查看说明；`/api` 列出当前模块全部接口，`/api 做市` 等关键词按目录/tag 或路径筛选，`/api <模块ID>` 指定 Apifox 模块（可选配置 `APIFOX_MODULE_MAP` 用中文别名）
 
 ## 环境要求
@@ -91,6 +92,17 @@ cp .env.example .env
 
 需在 `.env` 配置 `APIFOX_ACCESS_TOKEN`、`APIFOX_PROJECT_ID`（可选 `APIFOX_MODULE_ID`）。示例消息：`生成前端 https://xxx.feishu.cn/docx/xxxxx`。
 
+### Metabase 看板页（/metabase）
+
+在**与 /code 相同的白名单群**内发送命令，由代码助手按 `docs/metabase-add-page.md` 修改 mm-admin（或你的 `CODE_WORKSPACE_ROOT`）：
+
+- `/metabase <slug> <Dashboard数字ID> <现货|合约>` — 例：`/metabase data-hedge-profit 115 合约`
+- `/metabase id <Dashboard数字ID> <slug> <现货|合约>` — 例：`/metabase id 115 data-hedge-profit 现货`
+- 可选：`标题「侧栏菜单中文名」`（直角引号），指定导航 `title`
+- **现货** → 导航项 `showOnlyInSpot: true`；**合约** → `showOnlyInFuture: true`
+
+文档查找顺序：`METABASE_ADD_PAGE_DOC_PATH`（若配置）→ `CODE_WORKSPACE_ROOT/docs/metabase-add-page.md` → 本仓库 `docs/metabase-add-page.md`。
+
 ### Apifox 接口列表（/api）
 
 与「生成前端」共用同一套 Apifox 配置。发 **`/api 帮助`** 查看完整用法。典型用法：`/api`（默认/配置的模块）、`/api 关键词`（按 Apifox 目录写入的 tag、路径或摘要筛选）、`/api 123`（数字为项目内模块 ID）。若需在对话里用中文切换模块，可在 `.env` 设置 **`APIFOX_MODULE_MAP`**（JSON，如 `{"做市":123}`）。
@@ -120,8 +132,9 @@ cp .env.example .env
 | `FEISHU_PIPELINE_STAGE_A_CHAT_ID` | 否 | 多群流水线 A 群（需求分析）chat_id，不填则不启用流水线 |
 | `FEISHU_PIPELINE_STAGE_B_CHAT_ID` | 否 | 多群流水线 B 群（方案生成）chat_id |
 | `FEISHU_PIPELINE_STAGE_C_CHAT_ID` | 否 | 多群流水线 C 群（总结输出）chat_id |
-| `FEISHU_CODE_AGENT_CHAT_ID` | 否 | 代码修改（/code）与「生成前端」仅在此群可触发，不填则不在 Lark 开放该功能 |
+| `FEISHU_CODE_AGENT_CHAT_ID` | 否 | 代码修改（/code）、「生成前端」与 `/metabase` 仅在此群可触发，不填则不在 Lark 开放该功能 |
 | `CODE_WORKSPACE_ROOT` | 否 | 代码助手操作目录（读/写/替换/执行命令均基于此目录），不设则使用本项目根目录，默认 `mm-admin` 路径 |
+| `METABASE_ADD_PAGE_DOC_PATH` | 否 | `/metabase` 流程文档路径；不设则依次尝试工作区 `docs/metabase-add-page.md`、本仓库 `docs/metabase-add-page.md` |
 | `APIFOX_ACCESS_TOKEN` | 生成前端必填 | Apifox 开放 API 系统级访问令牌 |
 | `APIFOX_PROJECT_ID` | 生成前端必填 | Apifox 项目 ID（导出 OpenAPI 用） |
 | `APIFOX_MODULE_ID` | 否 | Apifox 模块 ID，不填则导出默认模块 |

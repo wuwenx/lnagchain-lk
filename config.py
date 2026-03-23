@@ -156,6 +156,8 @@ FEISHU_POPFUN_LOG_CHAT_ID = _str("FEISHU_POPFUN_LOG_CHAT_ID", "oc_0ef90b86531f08
 FEISHU_CODE_AGENT_CHAT_ID = _str("FEISHU_CODE_AGENT_CHAT_ID", "oc_26bb8b21a07f1bc01d79169013ef973a")
 # 代码助手操作目录：读/写/替换/执行命令均基于此目录；不设则使用本项目根目录
 CODE_WORKSPACE_ROOT = _str("CODE_WORKSPACE_ROOT", "/Users/wuwenxiang/wuwx/mm-admin").strip() or None
+# /metabase skill：固定流程文档路径；不设则依次尝试 CODE_WORKSPACE_ROOT/docs/metabase-add-page.md、本仓库 docs/metabase-add-page.md
+METABASE_ADD_PAGE_DOC_PATH = _str("METABASE_ADD_PAGE_DOC_PATH", "").strip() or None
 
 # Apifox 开放 API：用于「生成前端」时拉取接口文档（OpenAPI）
 APIFOX_ACCESS_TOKEN = _str("APIFOX_ACCESS_TOKEN", "")

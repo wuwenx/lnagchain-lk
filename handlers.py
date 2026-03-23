@@ -333,6 +333,7 @@ def _run_pipeline(user_text: str, document_context: str, chat_id_a: str) -> None
 
 def handle_message(data) -> None:
     """处理单条消息：取文本 → LangChain 回复 → 发回飞书。若来自流水线 A 群则走多群流水线。"""
+    chat_id: str | None = None
     try:
         message = _get_message(data)
         if not message:
@@ -495,6 +496,16 @@ def handle_message(data) -> None:
         logger.info("replied to chat_id=%s", chat_id)
     except Exception as e:
         logger.exception("handle_message error: %s", e)
+        cid = locals().get("chat_id")
+        if cid:
+            try:
+                send_text_message(
+                    cid,
+                    "处理消息时发生错误，请稍后重试或查看服务日志。\n"
+                    f"简要信息：`{str(e)[:500]}`",
+                )
+            except Exception as send_e:
+                logger.warning("handle_message error reply failed: %s", send_e)
 
 
 def _do_p2_im_message_receive_v1(data) -> None:
